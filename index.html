@@ -92,6 +92,13 @@
         box-sizing: border-box;
       }
 
+      /* An author `display` beats the browser's `[hidden] { display: none }`, so
+         `el.hidden = true` silently does nothing on anything given a display of
+         its own. Enforce it once here rather than per rule. */
+      [hidden] {
+        display: none !important;
+      }
+
       body {
         margin: 0;
         background: var(--bg);
