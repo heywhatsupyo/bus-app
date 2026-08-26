@@ -1,6 +1,9 @@
 /**
  * Pure departure-decision logic. No I/O, no DOM, no clock reads — everything
- * comes in as arguments so this is fully testable.
+ * arrives as an argument so this is fully testable.
+ *
+ * The question is deliberately narrow: given the next buses at my stop, when do
+ * I need to walk out the door? There is no destination and no arrival target.
  */
 
 import {
@@ -14,30 +17,34 @@ import {
 } from './time.js';
 
 /**
+ * How long before the intended departure a commute starts showing live buses,
+ * and how long after it keeps doing so.
+ */
+export const ACTIVE_LEAD_MIN = 45;
+export const ACTIVE_TRAIL_MIN = 60;
+
+/**
  * @typedef {object} Commute
  * @property {string} id
  * @property {string} label
- * @property {string} boardStop      stop code you board at
- * @property {string} alightStop     stop code you get off at
- * @property {string[]} services     acceptable bus service numbers
- * @property {number} walkToStopMin  home -> boarding stop
- * @property {number} rideMin        time on the bus
- * @property {number} walkFromStopMin alighting stop -> destination
+ * @property {string} boardStop      stop code you walk to
+ * @property {string[]} services     buses you are willing to take
+ * @property {number} walkToStopMin  door to stop
  * @property {number} bufferMin      safety margin
- * @property {string} targetArrivalHHMM
+ * @property {string} departAfterHHMM  when you intend to catch a bus
  * @property {number[]} activeDays   0 = Sunday .. 6 = Saturday
  */
 
 /**
  * @typedef {object} Arrival
  * @property {string} service
- * @property {number} durationMs  time until it reaches the boarding stop
- * @property {boolean} monitored   true when backed by live GPS, false when scheduled
+ * @property {number} durationMs  time until it reaches the stop
+ * @property {boolean} monitored  true when backed by live GPS, false when scheduled
  * @property {string} [load]
  * @property {string} [type]
  */
 
-/** @typedef {'LEAVE_NOW'|'LEAVE_AT'|'TOO_LATE'|'NO_SERVICE'|'SCHEDULED'} DepartureStatus */
+/** @typedef {'LEAVE_NOW'|'LEAVE_AT'|'NO_SERVICE'|'SCHEDULED'} DepartureStatus */
 
 /**
  * @typedef {object} Candidate
@@ -45,57 +52,63 @@ import {
  * @property {boolean} monitored
  * @property {string} [load]
  * @property {number} busAtStop
- * @property {number} arriveAtDest
  * @property {boolean} catchable
- * @property {boolean} onTime
  * @property {number} leaveAt
  */
 
 /**
  * @typedef {object} Decision
  * @property {DepartureStatus} status
- * @property {number} targetTs
  * @property {number|null} leaveAt
  * @property {string|null} leaveAtLabel
  * @property {number|null} minutesUntilLeave
  * @property {Candidate|null} bus
  * @property {Candidate[]} candidates
- * @property {number|null} [minutesLate]
+ * @property {boolean} live  true when the answer came from real arrivals
+ * @property {number} [nextRunTs]
  */
 
-/**
- * Resolve the next occurrence of the commute's target arrival time.
- *
- * Rolls forward when the time has already passed today, or when today is not one
- * of the commute's active days.
- *
- * @param {Commute} commute
- * @param {number} now epoch ms
- * @returns {{targetTs: number, isToday: boolean}}
- */
-export function resolveTargetArrival(commute, now) {
-  const { hour, minute } = parseHHMM(commute.targetArrivalHHMM);
-  const active = commute.activeDays?.length ? commute.activeDays : [0, 1, 2, 3, 4, 5, 6];
-  let date = sgtParts(now);
+const allDays = [0, 1, 2, 3, 4, 5, 6];
 
-  // Look ahead a full week; a commute always has at least one active day.
-  for (let offset = 0; offset < 8; offset += 1) {
-    const candidate = offset === 0 ? date : addDays(date, offset);
-    if (!active.includes(weekdayOf(candidate))) continue;
-    const ts = sgtToTimestamp(candidate, hour, minute);
-    if (ts > now) return { targetTs: ts, isToday: offset === 0 };
-  }
-  // Unreachable for a non-empty activeDays, but keep a defined result.
-  const fallback = addDays(date, 7);
-  return { targetTs: sgtToTimestamp(fallback, hour, minute), isToday: false };
+/** @param {Commute} commute */
+function daysOf(commute) {
+  return commute.activeDays?.length ? commute.activeDays : allDays;
 }
 
 /**
- * Total door-to-door time that does not depend on which bus you catch.
+ * The next time this commute comes around, at or after `now`.
  * @param {Commute} commute
+ * @param {number} now
  */
-function fixedTravelMin(commute) {
-  return commute.walkToStopMin + commute.rideMin + commute.walkFromStopMin;
+export function nextRun(commute, now) {
+  const { hour, minute } = parseHHMM(commute.departAfterHHMM);
+  const days = daysOf(commute);
+  const today = sgtParts(now);
+
+  for (let offset = 0; offset < 8; offset += 1) {
+    const date = offset === 0 ? today : addDays(today, offset);
+    if (!days.includes(weekdayOf(date))) continue;
+    const ts = sgtToTimestamp(date, hour, minute);
+    if (ts > now) return ts;
+  }
+  return sgtToTimestamp(addDays(today, 7), hour, minute);
+}
+
+/**
+ * Is this commute close enough to its departure time to show live buses?
+ * @param {Commute} commute
+ * @param {number} now
+ */
+export function isActiveNow(commute, now) {
+  const { hour, minute } = parseHHMM(commute.departAfterHHMM);
+  const today = sgtParts(now);
+  if (!daysOf(commute).includes(today.weekday)) return false;
+
+  const departTs = sgtToTimestamp(today, hour, minute);
+  return (
+    now >= departTs - ACTIVE_LEAD_MIN * MINUTE_MS &&
+    now <= departTs + ACTIVE_TRAIL_MIN * MINUTE_MS
+  );
 }
 
 /**
@@ -108,20 +121,22 @@ function fixedTravelMin(commute) {
  * @returns {Decision}
  */
 export function decideDeparture({ commute, arrivals, now }) {
-  const { targetTs, isToday } = resolveTargetArrival(commute, now);
+  const lead = (commute.walkToStopMin + commute.bufferMin) * MINUTE_MS;
 
-  // Live arrivals only look a few buses ahead, so they cannot inform a trip on a
-  // later day. Fall back to pure arithmetic from the target time.
-  if (!isToday) {
-    const leaveAt = targetTs - (fixedTravelMin(commute) + commute.bufferMin) * MINUTE_MS;
+  // Outside the active window, live arrivals are irrelevant — the next bus now
+  // is not the bus you are catching. Fall back to plain arithmetic.
+  if (!isActiveNow(commute, now)) {
+    const runTs = nextRun(commute, now);
+    const leaveAt = runTs - lead;
     return {
-      status: /** @type {DepartureStatus} */ ('SCHEDULED'),
-      targetTs,
+      status: 'SCHEDULED',
       leaveAt,
       leaveAtLabel: formatHHMM(leaveAt),
       minutesUntilLeave: Math.round((leaveAt - now) / MINUTE_MS),
       bus: null,
       candidates: [],
+      live: false,
+      nextRunTs: runTs,
     };
   }
 
@@ -130,66 +145,41 @@ export function decideDeparture({ commute, arrivals, now }) {
     .filter((a) => wanted.size === 0 || wanted.has(a.service))
     .map((a) => {
       const busAtStop = now + a.durationMs;
-      const arriveAtDest =
-        busAtStop + (commute.rideMin + commute.walkFromStopMin) * MINUTE_MS;
       return {
         service: a.service,
         monitored: a.monitored,
         load: a.load,
         busAtStop,
-        arriveAtDest,
-        // You must physically reach the stop before the bus does.
+        // You have to physically reach the stop before the bus does.
         catchable: busAtStop >= now + commute.walkToStopMin * MINUTE_MS,
-        onTime: arriveAtDest <= targetTs,
-        leaveAt: busAtStop - (commute.walkToStopMin + commute.bufferMin) * MINUTE_MS,
+        leaveAt: busAtStop - lead,
       };
     })
     .sort((a, b) => a.busAtStop - b.busAtStop);
 
-  if (candidates.length === 0) {
+  const catchable = candidates.filter((c) => c.catchable);
+
+  if (catchable.length === 0) {
     return {
-      status: /** @type {DepartureStatus} */ ('NO_SERVICE'),
-      targetTs,
+      status: 'NO_SERVICE',
       leaveAt: null,
       leaveAtLabel: null,
       minutesUntilLeave: null,
       bus: null,
       candidates,
+      live: true,
     };
   }
 
-  const viable = candidates.filter((c) => c.catchable && c.onTime);
-
-  if (viable.length === 0) {
-    // Nothing gets there in time. Report the best catchable option so the user
-    // knows how late they would be, rather than just failing.
-    const catchable = candidates.filter((c) => c.catchable);
-    const best = catchable.length
-      ? catchable.reduce((a, b) => (a.arriveAtDest <= b.arriveAtDest ? a : b))
-      : null;
-    return {
-      status: /** @type {DepartureStatus} */ ('TOO_LATE'),
-      targetTs,
-      leaveAt: best ? best.leaveAt : null,
-      leaveAtLabel: best ? formatHHMM(best.leaveAt) : null,
-      minutesUntilLeave: best ? Math.round((best.leaveAt - now) / MINUTE_MS) : null,
-      bus: best,
-      minutesLate: best ? Math.round((best.arriveAtDest - targetTs) / MINUTE_MS) : null,
-      candidates,
-    };
-  }
-
-  // Leave as late as is still safe: the last bus that arrives on time.
-  const chosen = viable.reduce((a, b) => (a.busAtStop >= b.busAtStop ? a : b));
-  const urgent = chosen.leaveAt <= now;
-
+  // The soonest bus you can still make.
+  const chosen = catchable[0];
   return {
-    status: /** @type {DepartureStatus} */ (urgent ? 'LEAVE_NOW' : 'LEAVE_AT'),
-    targetTs,
+    status: chosen.leaveAt <= now ? 'LEAVE_NOW' : 'LEAVE_AT',
     leaveAt: chosen.leaveAt,
     leaveAtLabel: formatHHMM(chosen.leaveAt),
     minutesUntilLeave: Math.round((chosen.leaveAt - now) / MINUTE_MS),
     bus: chosen,
     candidates,
+    live: true,
   };
 }

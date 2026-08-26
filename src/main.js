@@ -1,12 +1,14 @@
 /**
- * Entry point. On load: restore saved commutes, fetch live arrivals, and show
- * when to leave. No polling loop — arrivals refresh on load and when the tab
- * regains focus, which respects arrivelah2's 15s cache.
+ * Entry point. On load: restore saved commutes, fetch live arrivals for the ones
+ * that are close to their departure time, and show when to leave.
+ *
+ * Arrivals refresh on load and when the tab regains focus, never in a tight
+ * poll — arrivelah2 is a small community service.
  */
 
-import { findServicesBetween, loadBusData, nearestStops, searchStops } from './busdata.js';
+import { loadBusData, nearestStops, searchStops, servicesAtStop } from './busdata.js';
 import { fetchArrivals } from './arrivals.js';
-import { decideDeparture } from './planner.js';
+import { decideDeparture, isActiveNow } from './planner.js';
 import { addCommute, loadCommutes, newId, removeCommute } from './storage.js';
 import { maybeNotify, renderDecision, tickCountdowns } from './ui.js';
 
@@ -15,23 +17,17 @@ import { maybeNotify, renderDecision, tickCountdowns } from './ui.js';
 /** @type {import('./busdata.js').BusData|null} */
 let busData = null;
 
-/** @type {{board: Stop|null, alight: Stop|null}} */
-const picked = { board: null, alight: null };
+/** @type {Stop|null} */
+let pickedStop = null;
 
-/**
- * @param {string} id
- * @returns {HTMLElement}
- */
+/** @param {string} id @returns {HTMLElement} */
 function el(id) {
   const node = document.getElementById(id);
   if (!node) throw new Error(`Missing element #${id}`);
   return node;
 }
 
-/**
- * @param {string} id
- * @returns {HTMLInputElement}
- */
+/** @param {string} id @returns {HTMLInputElement} */
 function input(id) {
   return /** @type {HTMLInputElement} */ (el(id));
 }
@@ -44,24 +40,37 @@ function setStatus(message, isError = false) {
   node.hidden = !message;
 }
 
-/* ---------- rendering saved commutes ---------- */
+/* ---------- cards ---------- */
 
 async function refresh() {
   const commutes = loadCommutes();
-  const container = el('decisions');
+  const container = el('cards');
   container.replaceChildren();
   el('empty').hidden = commutes.length > 0;
-  if (commutes.length === 0) return;
+  if (commutes.length === 0) {
+    el('updated').textContent = '';
+    return;
+  }
 
   const now = Date.now();
-  for (const commute of commutes) {
+
+  // Sort so whatever is happening soonest sits at the top.
+  const ordered = [...commutes].sort((a, b) => {
+    const activeDiff = Number(isActiveNow(b, now)) - Number(isActiveNow(a, now));
+    return activeDiff || a.departAfterHHMM.localeCompare(b.departAfterHHMM);
+  });
+
+  for (const commute of ordered) {
     let decision;
     try {
-      const arrivals = await fetchArrivals(commute.boardStop, { now });
+      // Only spend a request when the commute is actually near its time.
+      const arrivals = isActiveNow(commute, now)
+        ? await fetchArrivals(commute.boardStop, { now })
+        : [];
       decision = decideDeparture({ commute, arrivals, now });
     } catch (error) {
       const card = document.createElement('article');
-      card.className = 'decision decision--error';
+      card.className = 'card card--error';
       card.textContent = `${commute.label}: could not load arrivals (${
         error instanceof Error ? error.message : String(error)
       })`;
@@ -69,35 +78,30 @@ async function refresh() {
       continue;
     }
 
-    const boardStopInfo = busData?.stops.get(commute.boardStop);
-    const card = renderDecision({ commute, decision, boardStopInfo });
-
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'decision__remove';
-    remove.textContent = 'Delete';
-    remove.addEventListener('click', () => {
-      if (!confirm(`Delete "${commute.label}"?`)) return;
-      removeCommute(commute.id);
-      refresh();
-    });
-    card.append(remove);
-
-    container.append(card);
+    container.append(
+      renderDecision({
+        commute,
+        decision,
+        now,
+        boardStopInfo: busData?.stops.get(commute.boardStop),
+      }),
+    );
     maybeNotify(decision, commute);
   }
 
-  el('updated').textContent = `Updated ${new Date(now).toLocaleTimeString()}`;
+  el('updated').textContent = `Updated ${new Date(now).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`;
 }
 
-/* ---------- stop pickers ---------- */
+/* ---------- stop picker ---------- */
 
 /**
- * @param {HTMLElement} container
  * @param {(Stop & {distance?: number})[]} stops
- * @param {(stop: Stop) => void} onPick
  */
-function renderStopResults(container, stops, onPick) {
+function renderStopResults(stops) {
+  const container = el('stopResults');
   container.replaceChildren();
   if (stops.length === 0) {
     container.hidden = true;
@@ -106,48 +110,59 @@ function renderStopResults(container, stops, onPick) {
   for (const stop of stops) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'stop-result';
-    const distance = stop.distance !== undefined ? ` · ${stop.distance} m` : '';
-    button.textContent = `${stop.name} — ${stop.road} (${stop.code})${distance}`;
-    button.addEventListener('click', () => onPick(stop));
+    button.className = 'result';
+    const name = document.createElement('span');
+    name.className = 'result__name';
+    name.textContent = stop.name;
+    const meta = document.createElement('span');
+    meta.className = 'result__meta';
+    meta.textContent =
+      stop.distance !== undefined
+        ? `${stop.road} · ${stop.code} · ${stop.distance} m`
+        : `${stop.road} · ${stop.code}`;
+    button.append(name, meta);
+    button.addEventListener('click', () => chooseStop(stop));
     container.append(button);
   }
   container.hidden = false;
 }
 
-/** @param {'board'|'alight'} which */
-function wireStopPicker(which) {
-  const search = input(`${which}Search`);
-  const results = el(`${which}Results`);
-  const chosen = el(`${which}Chosen`);
+/** @param {Stop} stop */
+function chooseStop(stop) {
+  pickedStop = stop;
+  const chosen = el('stopChosen');
+  chosen.textContent = `${stop.name} · ${stop.road} (${stop.code})`;
+  chosen.dataset.empty = 'false';
+  el('stopResults').hidden = true;
+  input('stopSearch').value = '';
+  updateServiceOptions();
+}
 
-  /** @param {Stop} stop */
-  const choose = (stop) => {
-    picked[which] = stop;
-    chosen.textContent = `${stop.name} (${stop.code})`;
-    results.hidden = true;
-    search.value = '';
-    updateServiceOptions();
-  };
+function wireStopPicker() {
+  const search = input('stopSearch');
 
   search.addEventListener('input', () => {
     if (!busData) return;
-    renderStopResults(results, searchStops(busData.stops, search.value), choose);
+    renderStopResults(searchStops(busData.stops, search.value));
   });
 
-  el(`${which}Nearby`).addEventListener('click', () => {
+  el('stopNearby').addEventListener('click', () => {
     if (!busData) return;
     if (!navigator.geolocation) {
       setStatus('This browser will not share a location. Search by name instead.', true);
       return;
     }
-    setStatus('Finding nearby stops…');
+    setStatus('Finding stops near you…');
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setStatus('');
         if (!busData) return;
-        const origin = { lat: position.coords.latitude, lng: position.coords.longitude };
-        renderStopResults(results, nearestStops(busData.stops, origin), choose);
+        renderStopResults(
+          nearestStops(busData.stops, {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          }),
+        );
       },
       () => setStatus('Location unavailable. Search by name instead.', true),
       { timeout: 8000 },
@@ -155,49 +170,42 @@ function wireStopPicker(which) {
   });
 }
 
-/** Work out which buses serve both chosen stops, in the right direction. */
+/** List the buses calling at the chosen stop, as toggleable chips. */
 function updateServiceOptions() {
   const container = el('services');
   const hint = el('servicesHint');
   container.replaceChildren();
 
-  if (!picked.board || !picked.alight || !busData) {
-    hint.textContent = 'Choose both stops to see which buses work.';
+  if (!pickedStop || !busData) {
+    hint.textContent = 'Choose a stop first.';
     return;
   }
 
-  const matches = findServicesBetween(
-    busData.services,
-    picked.board.code,
-    picked.alight.code,
-  );
-
-  if (matches.length === 0) {
-    hint.textContent =
-      'No single bus links those stops in that direction. Try a different pair — transfers are not supported yet.';
+  const found = servicesAtStop(busData.services, pickedStop.code);
+  if (found.length === 0) {
+    hint.textContent = 'No buses are recorded at that stop.';
     return;
   }
 
-  hint.textContent = `${matches.length} bus${
-    matches.length === 1 ? '' : 'es'
-  } link these stops. Tick the ones you would actually take.`;
+  hint.textContent = `${found.length} bus${
+    found.length === 1 ? '' : 'es'
+  } call here. Tick the ones you would actually board.`;
 
-  for (const match of matches) {
-    const wrapper = document.createElement('label');
-    wrapper.className = 'service-option';
+  for (const entry of found) {
+    const chip = document.createElement('label');
+    chip.className = 'chip';
     const box = document.createElement('input');
     box.type = 'checkbox';
-    box.value = match.service;
-    box.checked = true;
-    wrapper.append(
-      box,
-      document.createTextNode(` ${match.service} · ${match.stopsBetween} stops`),
-    );
-    container.append(wrapper);
+    box.value = entry.service;
+    const text = document.createElement('span');
+    text.textContent = entry.service;
+    chip.title = entry.name;
+    chip.append(box, text);
+    container.append(chip);
   }
 }
 
-/* ---------- form submission ---------- */
+/* ---------- form ---------- */
 
 /** @param {string} containerId */
 function checkedValues(containerId) {
@@ -211,13 +219,13 @@ function checkedValues(containerId) {
 function handleSubmit(event) {
   event.preventDefault();
 
-  if (!picked.board || !picked.alight) {
-    setStatus('Choose a boarding stop and an alighting stop first.', true);
+  if (!pickedStop) {
+    setStatus('Choose the stop you walk to.', true);
     return;
   }
   const services = checkedValues('services');
   if (services.length === 0) {
-    setStatus('Tick at least one bus service.', true);
+    setStatus('Tick at least one bus.', true);
     return;
   }
   const activeDays = checkedValues('days').map(Number);
@@ -230,26 +238,43 @@ function handleSubmit(event) {
   addCommute({
     id: newId(),
     label,
-    boardStop: picked.board.code,
-    alightStop: picked.alight.code,
+    boardStop: pickedStop.code,
     services,
     walkToStopMin: Number(input('walkTo').value),
-    rideMin: Number(input('ride').value),
-    walkFromStopMin: Number(input('walkFrom').value),
     bufferMin: Number(input('buffer').value),
-    targetArrivalHHMM: input('target').value,
+    departAfterHHMM: input('departAfter').value,
     activeDays,
   });
 
-  setStatus(`Saved "${label}".`);
+  setStatus(`Saved “${label}”.`);
   /** @type {HTMLFormElement} */ (el('form')).reset();
-  picked.board = null;
-  picked.alight = null;
-  el('boardChosen').textContent = 'none yet';
-  el('alightChosen').textContent = 'none yet';
+  pickedStop = null;
+  const chosen = el('stopChosen');
+  chosen.textContent = 'No stop chosen';
+  chosen.dataset.empty = 'true';
   updateServiceOptions();
-  /** @type {HTMLDetailsElement} */ (el('setup')).open = false;
   refresh();
+}
+
+/* ---------- alerts opt-in ---------- */
+
+function wireAlertsButton() {
+  const button = el('alerts');
+  if (typeof Notification === 'undefined') return;
+
+  // Only offer it when it would actually do something.
+  if (Notification.permission === 'default') button.hidden = false;
+
+  button.addEventListener('click', async () => {
+    const result = await Notification.requestPermission();
+    button.hidden = result !== 'default';
+    setStatus(
+      result === 'granted'
+        ? 'Alerts on. This page will notify you when it is time to leave, while it is open.'
+        : 'Alerts stayed off. The page still shows the countdown.',
+      result === 'denied',
+    );
+  });
 }
 
 /* ---------- boot ---------- */
@@ -257,17 +282,28 @@ function handleSubmit(event) {
 async function init() {
   el('form').addEventListener('submit', handleSubmit);
   el('refresh').addEventListener('click', () => refresh());
+  wireAlertsButton();
 
-  // Show saved commutes as soon as possible; the static dataset is only needed
-  // for stop names and the setup form.
+  // Delete buttons are created dynamically, so listen on the container.
+  el('cards').addEventListener('click', (event) => {
+    const target = /** @type {HTMLElement} */ (event.target);
+    if (target?.dataset.action !== 'delete') return;
+    const id = target.dataset.id;
+    if (!id) return;
+    const commute = loadCommutes().find((c) => c.id === id);
+    if (!confirm(`Delete “${commute?.label ?? 'this commute'}”?`)) return;
+    removeCommute(id);
+    refresh();
+  });
+
+  // Show saved commutes immediately; static data is only needed for stop names.
   refresh();
 
   try {
     setStatus('Loading bus data…');
     busData = await loadBusData();
     setStatus('');
-    wireStopPicker('board');
-    wireStopPicker('alight');
+    wireStopPicker();
     updateServiceOptions();
     refresh();
   } catch (error) {
@@ -277,11 +313,10 @@ async function init() {
     );
   }
 
-  // Re-check when the user returns to the tab, and keep the countdown ticking.
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) refresh();
   });
-  setInterval(() => tickCountdowns(el('decisions')), 1000);
+  setInterval(() => tickCountdowns(el('cards')), 1000);
 }
 
 document.addEventListener('DOMContentLoaded', init);

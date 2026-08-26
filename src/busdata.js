@@ -29,36 +29,28 @@ export function parseStops(raw) {
 }
 
 /**
- * Find every service that calls at `boardStop` and later at `alightStop` within
- * the same direction. Direction matters: a service may serve both stops but only
- * in the wrong order.
+ * Every service that calls at a stop, in natural service order.
+ *
+ * Direction does not matter here: the app only asks when the next bus reaches
+ * your stop, not where it goes afterwards.
  *
  * @param {Record<string, {name: string, routes: string[][]}>} services
- * @param {string} boardStop
- * @param {string} alightStop
- * @returns {{service: string, direction: number, stopsBetween: number}[]}
+ * @param {string} stopCode
+ * @returns {{service: string, name: string}[]}
  */
-export function findServicesBetween(services, boardStop, alightStop) {
-  if (boardStop === alightStop) return [];
-  /** @type {{service: string, direction: number, stopsBetween: number}[]} */
-  const matches = [];
+export function servicesAtStop(services, stopCode) {
+  /** @type {{service: string, name: string}[]} */
+  const found = [];
 
   for (const [no, definition] of Object.entries(services)) {
     const routes = definition.routes ?? [];
-    for (let direction = 0; direction < routes.length; direction += 1) {
-      const sequence = routes[direction];
-      const from = sequence.indexOf(boardStop);
-      if (from === -1) continue;
-      // Search after the boarding index so the direction of travel is respected.
-      const to = sequence.indexOf(alightStop, from + 1);
-      if (to === -1) continue;
-      matches.push({ service: no, direction, stopsBetween: to - from });
-      break; // one direction per service is enough
+    if (routes.some((sequence) => sequence.includes(stopCode))) {
+      found.push({ service: no, name: definition.name ?? '' });
     }
   }
 
-  return matches.sort(
-    (a, b) => a.stopsBetween - b.stopsBetween || a.service.localeCompare(b.service),
+  return found.sort((a, b) =>
+    a.service.localeCompare(b.service, 'en', { numeric: true }),
   );
 }
 

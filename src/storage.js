@@ -3,7 +3,9 @@
  * change can migrate rather than crash on old data.
  */
 
-const KEY = 'bus-app.commutes.v1';
+// v2 dropped the destination stop, ride time and arrival target, so old
+// records are not readable as the current shape.
+const KEY = 'bus-app.commutes.v2';
 
 /**
  * @returns {import('./planner.js').Commute[]}
@@ -47,4 +49,14 @@ export function removeCommute(id) {
 
 export function newId() {
   return `c${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
+}
+
+/**
+ * Replace one commute in place, keeping order.
+ * @param {import('./planner.js').Commute} commute
+ */
+export function updateCommute(commute) {
+  const all = loadCommutes().map((c) => (c.id === commute.id ? commute : c));
+  saveCommutes(all);
+  return all;
 }

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   distanceMetres,
-  findServicesBetween,
   nearestStops,
   parseStops,
   searchStops,
+  servicesAtStop,
 } from '../src/busdata.js';
 import { flattenService, normaliseArrivals } from '../src/arrivals.js';
 import servicesFixture from './fixtures/services.json' with { type: 'json' };
@@ -25,37 +25,33 @@ describe('parseStops', () => {
   });
 });
 
-describe('findServicesBetween', () => {
-  // In the real data, service 143 runs 52009 -> 28009 in direction 0 and the
-  // reverse in direction 1, which makes it a good direction check.
-  it('matches the direction that visits the stops in the right order', () => {
-    const forward = findServicesBetween(servicesFixture, '28009', '52009');
-    expect(forward.find((m) => m.service === '143').direction).toBe(1);
-
-    const reverse = findServicesBetween(servicesFixture, '52009', '28009');
-    expect(reverse.find((m) => m.service === '143').direction).toBe(0);
-  });
-
-  it('excludes a service that serves both stops only in the wrong order', () => {
-    // 183 is single-direction in the fixture, so one of these must be empty.
-    const oneWay = servicesFixture['183'].routes[0];
-    const [a, b] = [oneWay[2], oneWay[10]];
-    expect(findServicesBetween({ 183: servicesFixture['183'] }, a, b)).toHaveLength(1);
-    expect(findServicesBetween({ 183: servicesFixture['183'] }, b, a)).toHaveLength(0);
-  });
-
-  it('returns nothing when the stops are the same', () => {
-    expect(findServicesBetween(servicesFixture, '28009', '28009')).toEqual([]);
+describe('servicesAtStop', () => {
+  it('finds every service calling at a stop, in either direction', () => {
+    // 143 serves 28009 as the last stop of one direction and the first of the other.
+    const found = servicesAtStop(servicesFixture, '28009').map((s) => s.service);
+    expect(found).toContain('143');
   });
 
   it('returns nothing for an unknown stop', () => {
-    expect(findServicesBetween(servicesFixture, '28009', '00000')).toEqual([]);
+    expect(servicesAtStop(servicesFixture, '00000')).toEqual([]);
   });
 
-  it('orders results by how few stops the ride is', () => {
-    const matches = findServicesBetween(servicesFixture, '52009', '28009');
-    const counts = matches.map((m) => m.stopsBetween);
-    expect(counts).toEqual([...counts].sort((a, b) => a - b));
+  it('sorts service numbers naturally, not as strings', () => {
+    const found = servicesAtStop(
+      { 9: { name: 'a', routes: [['X']] }, 100: { name: 'b', routes: [['X']] }, 51: { name: 'c', routes: [['X']] } },
+      'X',
+    ).map((s) => s.service);
+    expect(found).toEqual(['9', '51', '100']);
+  });
+
+  it('carries the human route name through', () => {
+    const [first] = servicesAtStop({ 143: servicesFixture['143'] }, '28009');
+    expect(first.name).toBe(servicesFixture['143'].name);
+  });
+
+  it('does not double-count a service that serves the stop twice', () => {
+    const found = servicesAtStop({ 143: servicesFixture['143'] }, '28009');
+    expect(found).toHaveLength(1);
   });
 });
 

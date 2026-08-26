@@ -3,139 +3,146 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>When to Leave — Singapore bus commute planner</title>
+    <meta name="theme-color" content="#0f1115" />
+    <title>Leave Now — bus departure alerts</title>
     <meta
       name="description"
-      content="Tells you what time to leave the house to catch your bus and arrive on time, using live Singapore bus arrivals."
+      content="Tells you when to leave the house to catch your bus, using live Singapore arrival times."
     />
     <link rel="stylesheet" href="./styles.css" />
     <link
       rel="icon"
-      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🚌</text></svg>"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🚏</text></svg>"
     />
   </head>
   <body>
-    <header class="header">
-      <h1>When to Leave</h1>
-      <p class="tagline">Live Singapore bus arrivals, working backwards from when you need to be there.</p>
-    </header>
-
-    <main>
-      <p id="status" class="status" hidden></p>
-
-      <section aria-labelledby="now-heading">
-        <div class="section-head">
-          <h2 id="now-heading">Right now</h2>
-          <div class="section-head__actions">
-            <span id="updated" class="updated"></span>
-            <button type="button" id="refresh" class="btn btn--ghost">Refresh</button>
-          </div>
-        </div>
-
-        <div id="decisions" class="decisions"></div>
-
-        <p id="empty" class="empty" hidden>
-          No commutes saved yet. Add one below and this page will tell you when to leave
-          every time you open it.
+    <div class="shell">
+      <header class="masthead">
+        <p class="masthead__eyebrow">Singapore buses</p>
+        <h1 class="masthead__title">Leave Now</h1>
+        <p class="masthead__sub">
+          When to walk out the door to catch your bus.
         </p>
-      </section>
+      </header>
 
-      <details id="setup" class="setup">
-        <summary>Add a commute</summary>
+      <p id="status" class="notice" hidden></p>
 
-        <form id="form" class="form">
-          <p class="form__intro">
-            Pick the stop you board at and the stop you get off at. This app does not do
-            address search or transfers — it handles the trips you already know, which is
-            what a daily commute is.
-          </p>
-
-          <label class="field">
-            <span class="field__label">Name</span>
-            <input id="label" type="text" placeholder="Morning to work" autocomplete="off" />
-          </label>
-
-          <fieldset class="field-group">
-            <legend>Boarding stop</legend>
-            <p class="chosen">Chosen: <strong id="boardChosen">none yet</strong></p>
-            <div class="picker">
-              <input id="boardSearch" type="search" placeholder="Search stop or road name…" autocomplete="off" />
-              <button type="button" id="boardNearby" class="btn btn--ghost">Near me</button>
+      <main>
+        <section class="stack" aria-labelledby="live-heading">
+          <div class="row">
+            <h2 id="live-heading" class="eyebrow">Your commutes</h2>
+            <div class="row__actions">
+              <span id="updated" class="meta"></span>
+              <button type="button" id="alerts" class="chip-btn" hidden>
+                Enable alerts
+              </button>
+              <button type="button" id="refresh" class="chip-btn">Refresh</button>
             </div>
-            <div id="boardResults" class="stop-results" hidden></div>
-          </fieldset>
+          </div>
 
-          <fieldset class="field-group">
-            <legend>Alighting stop</legend>
-            <p class="chosen">Chosen: <strong id="alightChosen">none yet</strong></p>
-            <div class="picker">
-              <input id="alightSearch" type="search" placeholder="Search stop or road name…" autocomplete="off" />
-              <button type="button" id="alightNearby" class="btn btn--ghost">Near me</button>
+          <div id="cards" class="cards"></div>
+
+          <div id="empty" class="empty" hidden>
+            <p class="empty__title">Nothing saved yet</p>
+            <p class="empty__body">
+              Add a commute below — a stop, the buses you take and the time you
+              usually go. Open this page and it tells you when to leave.
+            </p>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="add-heading">
+          <h2 id="add-heading" class="eyebrow">Add a commute</h2>
+
+          <form id="form" class="form">
+            <label class="field">
+              <span class="field__label">Name this commute</span>
+              <input
+                id="label"
+                type="text"
+                placeholder="Morning to work"
+                autocomplete="off"
+                maxlength="40"
+              />
+            </label>
+
+            <div class="field">
+              <span class="field__label">Which stop do you walk to?</span>
+              <p id="stopChosen" class="picked" data-empty="true">No stop chosen</p>
+              <div class="inline">
+                <input
+                  id="stopSearch"
+                  type="search"
+                  placeholder="Search a stop or road name…"
+                  autocomplete="off"
+                />
+                <button type="button" id="stopNearby" class="chip-btn">Near me</button>
+              </div>
+              <div id="stopResults" class="results" hidden></div>
             </div>
-            <div id="alightResults" class="stop-results" hidden></div>
-          </fieldset>
 
-          <fieldset class="field-group">
-            <legend>Buses</legend>
-            <p id="servicesHint" class="hint">Choose both stops to see which buses work.</p>
-            <div id="services" class="services"></div>
-          </fieldset>
+            <div class="field">
+              <span class="field__label">Which buses do you take?</span>
+              <p id="servicesHint" class="hint">Choose a stop first.</p>
+              <div id="services" class="chips"></div>
+            </div>
 
-          <fieldset class="field-group">
-            <legend>Timings</legend>
-            <div class="grid">
+            <div class="field-row">
               <label class="field">
-                <span class="field__label">Walk to stop (min)</span>
-                <input id="walkTo" type="number" min="0" max="60" value="5" required />
+                <span class="field__label">Walk to stop</span>
+                <span class="with-unit">
+                  <input id="walkTo" type="number" min="0" max="60" value="5" required />
+                  <span class="unit">min</span>
+                </span>
               </label>
+
               <label class="field">
-                <span class="field__label">Time on bus (min)</span>
-                <input id="ride" type="number" min="1" max="180" value="25" required />
-                <span class="hint">You know this better than any API can guess.</span>
+                <span class="field__label">Safety buffer</span>
+                <span class="with-unit">
+                  <input id="buffer" type="number" min="0" max="30" value="3" required />
+                  <span class="unit">min</span>
+                </span>
               </label>
+
               <label class="field">
-                <span class="field__label">Walk from stop (min)</span>
-                <input id="walkFrom" type="number" min="0" max="60" value="5" required />
-              </label>
-              <label class="field">
-                <span class="field__label">Safety buffer (min)</span>
-                <input id="buffer" type="number" min="0" max="30" value="3" required />
-              </label>
-              <label class="field">
-                <span class="field__label">Arrive by</span>
-                <input id="target" type="time" value="09:00" required />
+                <span class="field__label">Usual time</span>
+                <input id="departAfter" type="time" value="08:00" required />
               </label>
             </div>
-          </fieldset>
 
-          <fieldset class="field-group">
-            <legend>Days</legend>
-            <div id="days" class="days">
-              <label><input type="checkbox" value="1" checked /> Mon</label>
-              <label><input type="checkbox" value="2" checked /> Tue</label>
-              <label><input type="checkbox" value="3" checked /> Wed</label>
-              <label><input type="checkbox" value="4" checked /> Thu</label>
-              <label><input type="checkbox" value="5" checked /> Fri</label>
-              <label><input type="checkbox" value="6" /> Sat</label>
-              <label><input type="checkbox" value="0" /> Sun</label>
+            <div class="field">
+              <span class="field__label">Which days?</span>
+              <div id="days" class="days">
+                <label class="day"><input type="checkbox" value="1" checked /><span>Mon</span></label>
+                <label class="day"><input type="checkbox" value="2" checked /><span>Tue</span></label>
+                <label class="day"><input type="checkbox" value="3" checked /><span>Wed</span></label>
+                <label class="day"><input type="checkbox" value="4" checked /><span>Thu</span></label>
+                <label class="day"><input type="checkbox" value="5" checked /><span>Fri</span></label>
+                <label class="day"><input type="checkbox" value="6" /><span>Sat</span></label>
+                <label class="day"><input type="checkbox" value="0" /><span>Sun</span></label>
+              </div>
+              <p class="hint">
+                Save several commutes at different times — a morning one and an
+                evening one work independently.
+              </p>
             </div>
-          </fieldset>
 
-          <button type="submit" class="btn btn--primary">Save commute</button>
-        </form>
-      </details>
+            <button type="submit" class="primary-btn">Save commute</button>
+          </form>
+        </section>
+      </main>
 
       <footer class="footer">
         <p>
-          Bus data from
+          Arrival data from
           <a href="https://busrouter.sg/">busrouter.sg</a> and
-          <a href="https://arrivelah2.busrouter.sg/">arrivelah2</a> — community projects,
-          used sparingly and cached. Arrivals are often timetable estimates rather than
-          tracked buses; each result says which.
+          <a href="https://arrivelah2.busrouter.sg/">arrivelah2</a>, cached and
+          polled sparingly. Many estimates come from timetables rather than tracked
+          buses — each card says which.
         </p>
-        <p>Saved commutes stay in this browser only. Nothing is uploaded.</p>
+        <p>Your commutes stay in this browser. Nothing is uploaded.</p>
       </footer>
-    </main>
+    </div>
 
     <script type="module" src="./src/main.js"></script>
   </body>

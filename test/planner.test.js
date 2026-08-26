@@ -1,150 +1,180 @@
 import { describe, expect, it } from 'vitest';
-import { decideDeparture, resolveTargetArrival } from '../src/planner.js';
+import {
+  ACTIVE_LEAD_MIN,
+  decideDeparture,
+  isActiveNow,
+  nextRun,
+} from '../src/planner.js';
 import { MINUTE_MS, sgtToTimestamp } from '../src/time.js';
 
 /** 2026-08-26 is a Wednesday. */
 const WED = { year: 2026, month: 8, day: 26 };
 const at = (hour, minute) => sgtToTimestamp(WED, hour, minute);
+const on = (day, hour, minute) => sgtToTimestamp({ ...WED, day }, hour, minute);
 
 /** @returns {import('../src/planner.js').Commute} */
 function commute(overrides = {}) {
   return {
     id: 'c1',
-    label: 'To work',
+    label: 'Morning to work',
     boardStop: '28009',
-    alightStop: '52009',
     services: ['143'],
     walkToStopMin: 6,
-    rideMin: 34,
-    walkFromStopMin: 4,
     bufferMin: 3,
-    targetArrivalHHMM: '09:00',
+    departAfterHHMM: '08:00',
     activeDays: [1, 2, 3, 4, 5],
     ...overrides,
   };
 }
 
-/** Arrival that reaches the boarding stop `min` minutes from now. */
+/** A bus that reaches the stop `min` minutes from now. */
 const bus = (service, min, monitored = false) => ({
   service,
   durationMs: min * MINUTE_MS,
   monitored,
 });
 
-describe('resolveTargetArrival', () => {
-  it('uses today when the target is still ahead', () => {
-    const { targetTs, isToday } = resolveTargetArrival(commute(), at(7, 0));
-    expect(isToday).toBe(true);
-    expect(targetTs).toBe(at(9, 0));
+describe('nextRun', () => {
+  it('returns today when the time is still ahead', () => {
+    expect(nextRun(commute(), at(7, 0))).toBe(at(8, 0));
   });
 
-  it('rolls to the next active day once the target has passed', () => {
-    const { targetTs, isToday } = resolveTargetArrival(commute(), at(9, 30));
-    expect(isToday).toBe(false);
-    // Thursday 27th, still a weekday.
-    expect(targetTs).toBe(sgtToTimestamp({ ...WED, day: 27 }, 9, 0));
+  it('rolls to the next active day once the time has passed', () => {
+    expect(nextRun(commute(), at(9, 0))).toBe(on(27, 8, 0));
   });
 
   it('skips inactive days', () => {
-    // Weekend-only commute, evaluated on a Wednesday -> next Saturday the 29th.
-    const { targetTs } = resolveTargetArrival(
-      commute({ activeDays: [0, 6] }),
-      at(7, 0),
-    );
-    expect(targetTs).toBe(sgtToTimestamp({ ...WED, day: 29 }, 9, 0));
+    // Weekend-only, evaluated on a Wednesday -> Saturday the 29th.
+    expect(nextRun(commute({ activeDays: [0, 6] }), at(7, 0))).toBe(on(29, 8, 0));
   });
 
-  it('treats an empty activeDays list as every day', () => {
-    const { isToday } = resolveTargetArrival(commute({ activeDays: [] }), at(7, 0));
-    expect(isToday).toBe(true);
+  it('treats an empty day list as every day', () => {
+    expect(nextRun(commute({ activeDays: [] }), at(7, 0))).toBe(at(8, 0));
+  });
+});
+
+describe('isActiveNow', () => {
+  it('is active shortly before the departure time', () => {
+    expect(isActiveNow(commute(), at(7, 30))).toBe(true);
+  });
+
+  it('is active shortly after the departure time', () => {
+    expect(isActiveNow(commute(), at(8, 30))).toBe(true);
+  });
+
+  it('is inactive well before the window opens', () => {
+    expect(isActiveNow(commute(), at(6, 0))).toBe(false);
+  });
+
+  it('is inactive well after the window closes', () => {
+    expect(isActiveNow(commute(), at(10, 0))).toBe(false);
+  });
+
+  it('is inactive on a day the commute does not run', () => {
+    // Saturday the 29th, weekday-only commute.
+    expect(isActiveNow(commute(), on(29, 8, 0))).toBe(false);
+  });
+
+  it('opens exactly at the lead boundary', () => {
+    expect(isActiveNow(commute(), at(8, 0) - ACTIVE_LEAD_MIN * MINUTE_MS)).toBe(true);
   });
 });
 
 describe('decideDeparture', () => {
-  it('picks the latest bus that still arrives on time', () => {
-    const now = at(7, 30);
-    // Ride+walk = 38 min. To arrive by 09:00 the bus must reach the stop by 08:22,
-    // i.e. within 52 minutes of 07:30.
+  it('picks the soonest catchable bus and subtracts walk and buffer', () => {
     const result = decideDeparture({
       commute: commute(),
-      arrivals: [bus('143', 10), bus('143', 30), bus('143', 50), bus('143', 60)],
-      now,
+      arrivals: [bus('143', 20), bus('143', 35)],
+      now: at(7, 40),
     });
-
     expect(result.status).toBe('LEAVE_AT');
-    expect(result.bus.busAtStop).toBe(at(8, 20)); // the 50-minute bus
-    // leave = bus - walkToStop(6) - buffer(3)
-    expect(result.leaveAtLabel).toBe('08:11');
-    expect(result.minutesUntilLeave).toBe(41);
+    expect(result.bus.busAtStop).toBe(at(8, 0));
+    // 08:00 minus 6 min walk minus 3 min buffer.
+    expect(result.leaveAtLabel).toBe('07:51');
+    expect(result.minutesUntilLeave).toBe(11);
+    expect(result.live).toBe(true);
   });
 
-  it('flags LEAVE_NOW when the leave time has already arrived', () => {
+  it('says leave now once the leave time has arrived', () => {
     const result = decideDeparture({
       commute: commute(),
       arrivals: [bus('143', 8)],
-      now: at(7, 30),
+      now: at(7, 55),
     });
-    // leave = 07:38 - 9 min = 07:29, one minute in the past.
+    // Bus at 08:03, leave time 07:54 — one minute ago.
     expect(result.status).toBe('LEAVE_NOW');
     expect(result.minutesUntilLeave).toBe(-1);
   });
 
-  it('ignores buses that cannot physically be caught', () => {
-    // Walk is 6 min, so a bus 3 min away is unreachable.
+  it('skips buses that arrive sooner than the walk takes', () => {
     const result = decideDeparture({
       commute: commute(),
-      arrivals: [bus('143', 3)],
-      now: at(7, 30),
+      arrivals: [bus('143', 3), bus('143', 25)],
+      now: at(7, 40),
     });
-    expect(result.status).toBe('TOO_LATE');
+    expect(result.bus.busAtStop).toBe(at(8, 5));
+    expect(result.candidates[0].catchable).toBe(false);
+  });
+
+  it('reports NO_SERVICE when nothing can be caught', () => {
+    const result = decideDeparture({
+      commute: commute(),
+      arrivals: [bus('143', 2)],
+      now: at(7, 40),
+    });
+    expect(result.status).toBe('NO_SERVICE');
     expect(result.bus).toBeNull();
   });
 
-  it('reports how late the best option is when nothing arrives on time', () => {
-    const result = decideDeparture({
-      commute: commute(),
-      arrivals: [bus('143', 60)], // reaches stop 08:30, arrives 09:08
-      now: at(7, 30),
-    });
-    expect(result.status).toBe('TOO_LATE');
-    expect(result.minutesLate).toBe(8);
-    expect(result.bus.service).toBe('143');
-  });
-
-  it('returns NO_SERVICE when there are no arrivals', () => {
-    const result = decideDeparture({ commute: commute(), arrivals: [], now: at(7, 30) });
-    expect(result.status).toBe('NO_SERVICE');
-    expect(result.leaveAt).toBeNull();
-  });
-
-  it('returns NO_SERVICE when no arrival matches the chosen services', () => {
+  it('reports NO_SERVICE when no bus matches the chosen services', () => {
     const result = decideDeparture({
       commute: commute({ services: ['143'] }),
-      arrivals: [bus('105', 20), bus('51', 25)],
-      now: at(7, 30),
+      arrivals: [bus('105', 20)],
+      now: at(7, 40),
     });
     expect(result.status).toBe('NO_SERVICE');
   });
 
-  it('considers every accepted service, not just the first', () => {
+  it('accepts any listed service, not just the first', () => {
     const result = decideDeparture({
       commute: commute({ services: ['143', '105'] }),
-      arrivals: [bus('143', 20), bus('105', 45)],
-      now: at(7, 30),
+      arrivals: [bus('105', 15), bus('143', 25)],
+      now: at(7, 40),
     });
     expect(result.bus.service).toBe('105');
   });
 
-  it('falls back to arithmetic for a trip on a later day', () => {
+  it('ignores live arrivals outside the active window', () => {
     const result = decideDeparture({
       commute: commute(),
-      arrivals: [bus('143', 10)],
-      now: at(22, 0),
+      arrivals: [bus('143', 5)],
+      now: at(5, 0),
     });
     expect(result.status).toBe('SCHEDULED');
+    expect(result.live).toBe(false);
     expect(result.bus).toBeNull();
-    // 09:00 minus 44 min travel (6 + 34 + 4) minus the 3 min buffer.
-    expect(result.leaveAtLabel).toBe('08:13');
+    // 08:00 minus 9 min of walk and buffer.
+    expect(result.leaveAtLabel).toBe('07:51');
+  });
+
+  it('schedules the next active day after the window closes', () => {
+    const result = decideDeparture({
+      commute: commute(),
+      arrivals: [],
+      now: at(12, 0),
+    });
+    expect(result.status).toBe('SCHEDULED');
+    expect(result.nextRunTs).toBe(on(27, 8, 0));
+  });
+
+  it('keeps every candidate for display, catchable or not', () => {
+    const result = decideDeparture({
+      commute: commute(),
+      arrivals: [bus('143', 1), bus('143', 20), bus('143', 40)],
+      now: at(7, 40),
+    });
+    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates.map((c) => c.catchable)).toEqual([false, true, true]);
   });
 
   it('is unaffected by the device timezone', () => {
@@ -152,8 +182,8 @@ describe('decideDeparture', () => {
     const run = () =>
       decideDeparture({
         commute: commute(),
-        arrivals: [bus('143', 50)],
-        now: at(7, 30),
+        arrivals: [bus('143', 20)],
+        now: at(7, 40),
       }).leaveAtLabel;
 
     process.env.TZ = 'UTC';
@@ -162,7 +192,7 @@ describe('decideDeparture', () => {
     const ny = run();
     process.env.TZ = original;
 
-    expect(utc).toBe('08:11');
+    expect(utc).toBe('07:51');
     expect(ny).toBe(utc);
   });
 });

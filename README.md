@@ -1,36 +1,39 @@
-# When to Leave
+# Leave Now
 
-A single-page app that tells you **what time to leave the house** to catch your bus and
-arrive somewhere on time, using live Singapore bus arrival data.
+A single-page app that answers one question: **when do I leave the house to catch my
+bus?**
 
-You set up a commute once — boarding stop, alighting stop, how long the ride takes —
-and every time you open the page it works backwards from your target arrival time and
-tells you when to walk out the door.
+Save a commute — the stop you walk to, the buses you take, how long the walk is, and the
+time you usually go. Open the page and it shows a countdown, using live Singapore
+arrival data.
 
-## Why it works this way
+You can save as many commutes as you like at different times. A morning one and an
+evening one are independent; the app shows whichever is closest to its time.
 
-There is no address search and no transfer planning. That is deliberate: full
-door-to-door routing needs OneMap's API, whose token can't be embedded safely in a
-static page and expires every three days, which would mean running a server.
+## Why it's this narrow
 
-For a *daily commute* you already know your route and how long the ride takes — better
-than any API can estimate. So you supply those once, and the app does the part that
-genuinely needs live data: deciding which bus to catch and when to leave.
+There is no destination, no arrival target and no journey planning. Earlier versions had
+all three, and none of it earned its place: door-to-door routing needs OneMap, whose
+token can't be embedded safely in a static page and expires every three days — which
+would mean running a server.
+
+Getting to the stop on time is the part that actually needs live data, and the part you
+can't eyeball from a timetable. So that's all this does.
 
 ## Requirements
 
 Node.js 20 or newer, and Python 3 for the local server. **Node 20.19+ is recommended** —
-20.11 and below cannot run current ESLint or Vitest 4 (see Known constraints).
+20.11 and below cannot run current ESLint or Vitest (see Known constraints).
 
 ## Running it
 
 ```bash
 npm install
-npm start          # serves on http://localhost:8000
+npm start          # http://localhost:8000
 ```
 
-ES modules are blocked over `file://`, so the page must be served rather than opened
-directly from disk.
+ES modules are blocked over `file://`, so the page has to be served rather than opened
+from disk.
 
 ## Scripts
 
@@ -42,45 +45,50 @@ directly from disk.
 | `npm test` | Vitest, once |
 | `npm run test:watch` | Vitest in watch mode |
 
-There is no build step. `index.html` loads `src/*.js` directly.
+No build step. `index.html` loads `src/*.js` directly.
 
 ## How the decision is made
 
-`src/planner.js` is pure, I/O-free, and carries the whole algorithm:
+`src/planner.js` holds the whole algorithm and is pure — no I/O, no DOM, no clock reads:
 
-1. Resolve the next occurrence of your target arrival time, skipping inactive days.
-2. For each live arrival, compute when that bus would get you to your destination.
-3. Discard buses you couldn't physically reach in your walking time.
-4. Among those arriving on time, take the **latest** — so you leave as late as is safe.
-5. Subtract walking time and your safety buffer to get the leave time.
+1. Is this commute near its usual time? Live buses only matter from 45 minutes before
+   until 60 minutes after. Outside that, the next bus at the stop is not the bus you
+   are catching.
+2. Among the buses you'd board, drop any arriving sooner than your walk takes — you
+   can't reach them.
+3. Take the soonest one you can still make.
+4. Leave time = that bus, minus the walk, minus your buffer.
 
-It returns one of five statuses: `LEAVE_NOW`, `LEAVE_AT`, `TOO_LATE`, `NO_SERVICE`, or
-`SCHEDULED` (for a trip on a later day, where live arrivals can't help).
+Four statuses: `LEAVE_NOW`, `LEAVE_AT`, `NO_SERVICE`, and `SCHEDULED` (outside the
+window, where the answer is arithmetic rather than live data).
+
+## Alerts
+
+The page shows the countdown whenever it is open. "Enable alerts" additionally grants
+system notifications, so a `LEAVE_NOW` surfaces outside the tab — but only while the
+page is open. There is no backend and no service worker, so nothing fires when the page
+is closed.
 
 ## Data sources
 
 | Source | Used for |
 | --- | --- |
-| [`data.busrouter.sg`](https://data.busrouter.sg) | stop coordinates and per-service stop sequences |
+| [`data.busrouter.sg`](https://data.busrouter.sg) | stop coordinates and which buses call where |
 | [`arrivelah2.busrouter.sg`](https://arrivelah2.busrouter.sg) | live arrival estimates |
 
 Both are community projects by [cheeaun](https://github.com/cheeaun), served with open
-CORS. The app caches arrivals for 15 seconds and never polls in a loop — it refetches on
-load and when you return to the tab.
+CORS. Arrivals are cached for 15 seconds, requested only for commutes inside their active
+window, and refetched on load or when you return to the tab — never in a poll loop.
 
 ## Known constraints
 
-- **Arrival estimates are often timetable-derived, not GPS.** Responses carry a
-  `monitored` flag; every result shows a "live GPS" or "scheduled estimate" badge so you
-  can judge how much to trust it.
-- **Only about three buses ahead are visible.** With a target hours away, the app can
-  only recommend the latest bus the API currently knows about.
-- **One bus, no transfers.** If no single service links your two stops in the right
-  direction, the app says so rather than guessing.
+- **Estimates are often timetable-derived, not GPS.** Responses carry a `monitored`
+  flag; every card shows "Live tracking" or "Timetable estimate" so you can judge it.
+- **Only about three buses ahead are visible** per service.
 - **Node 20.11 and below** can't run ESLint 10 or Vitest 4 (both need `util.styleText`,
-  added in Node 20.19). ESLint is pinned to 9 and Vitest to 3 for this reason.
+  added in Node 20.19). ESLint is pinned to 9 and Vitest to 3 for that reason.
 
 ## Privacy
 
-Commutes are stored in `localStorage` in your own browser. Nothing is uploaded, and
-there is no backend or account.
+Commutes live in `localStorage` in your browser. Nothing is uploaded; there is no
+backend and no account.
