@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import {
+import { loadApp } from './load-app.js';
+import servicesFixture from './fixtures/services.json' with { type: 'json' };
+import stopsFixture from './fixtures/stops.json' with { type: 'json' };
+import arrivalsFixture from './fixtures/arrivals-28009.json' with { type: 'json' };
+
+const {
   distanceMetres,
   nearestStops,
   parseStops,
   searchStops,
   servicesAtStop,
-} from '../src/busdata.js';
-import { flattenService, normaliseArrivals } from '../src/arrivals.js';
-import servicesFixture from './fixtures/services.json' with { type: 'json' };
-import stopsFixture from './fixtures/stops.json' with { type: 'json' };
-import arrivalsFixture from './fixtures/arrivals-28009.json' with { type: 'json' };
+  flattenService,
+  normaliseArrivals,
+} = await loadApp();
 
 describe('parseStops', () => {
   it('reads lng before lat, as stops.json stores them', () => {

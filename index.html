@@ -4,22 +4,702 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0f1115" />
-    <title>Leave Now — bus departure alerts</title>
+    <title>When to Leave — bus departure alerts</title>
     <meta
       name="description"
       content="Tells you when to leave the house to catch your bus, using live Singapore arrival times."
     />
-    <link rel="stylesheet" href="./styles.css" />
     <link
       rel="icon"
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🚏</text></svg>"
     />
+    <style>
+      /* ==========================================================================
+         Leave Now — design tokens
+         Light is the base; only the tokens change for dark.
+         ========================================================================== */
+
+      :root {
+        --bg: #f4f5f8;
+        --bg-tint: #eaecf2;
+        --surface: #ffffff;
+        --surface-2: #f8f9fc;
+        --border: #e2e5ec;
+        --border-strong: #cdd2dd;
+
+        --text: #14161b;
+        --text-2: #4d5563;
+        --text-3: #7b8494;
+
+        --accent: #4b45d6;
+        --accent-soft: #ecebfd;
+
+        --go: #0b7a4b;
+        --go-soft: #e2f6ec;
+        --go-line: #16a163;
+
+        --wait: #1f5fc4;
+        --wait-soft: #e8f0fe;
+
+        --none: #b23025;
+        --none-soft: #fdeceb;
+
+        --shadow-sm: 0 1px 2px rgba(16, 20, 30, 0.05);
+        --shadow-md: 0 4px 16px -4px rgba(16, 20, 30, 0.1), 0 1px 3px rgba(16, 20, 30, 0.05);
+        --shadow-lg: 0 12px 32px -8px rgba(16, 20, 30, 0.16);
+
+        --r-sm: 8px;
+        --r-md: 12px;
+        --r-lg: 18px;
+        --r-full: 999px;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115;
+          --bg-tint: #14171d;
+          --surface: #191d24;
+          --surface-2: #1f242c;
+          --border: #2a3038;
+          --border-strong: #3a424e;
+
+          --text: #eef1f6;
+          --text-2: #a9b3c1;
+          --text-3: #7d8796;
+
+          --accent: #9d97ff;
+          --accent-soft: #221f45;
+
+          --go: #4ade9a;
+          --go-soft: #0f2a1e;
+          --go-line: #34c98a;
+
+          --wait: #8ab4ff;
+          --wait-soft: #16233a;
+
+          --none: #ff9b90;
+          --none-soft: #331a17;
+
+          --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+          --shadow-md: 0 4px 16px -4px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+          --shadow-lg: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+        }
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        font-size: 16px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .shell {
+        max-width: 41rem;
+        margin: 0 auto;
+        padding: 2rem 1.15rem 3rem;
+      }
+
+      /* ---------- masthead ---------- */
+
+      .masthead {
+        margin-bottom: 1.75rem;
+      }
+
+      .masthead__eyebrow,
+      .eyebrow {
+        margin: 0;
+        font-size: 0.7rem;
+        font-weight: 650;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--text-3);
+      }
+
+      .masthead__title {
+        margin: 0.3rem 0 0;
+        font-size: clamp(2rem, 8vw, 2.6rem);
+        font-weight: 800;
+        letter-spacing: -0.035em;
+        line-height: 1.05;
+        background: linear-gradient(135deg, var(--text) 30%, var(--accent));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .masthead__sub {
+        margin: 0.35rem 0 0;
+        color: var(--text-2);
+        font-size: 1rem;
+      }
+
+      /* ---------- layout bits ---------- */
+
+      .stack {
+        display: grid;
+        gap: 0.9rem;
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .row__actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .meta {
+        font-size: 0.76rem;
+        color: var(--text-3);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .hint {
+        margin: 0.35rem 0 0;
+        font-size: 0.8rem;
+        color: var(--text-3);
+      }
+
+      /* ---------- commute cards ---------- */
+
+      .cards {
+        display: grid;
+        gap: 0.85rem;
+      }
+
+      .card {
+        position: relative;
+        padding: 1.15rem 1.25rem 1rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-md);
+        overflow: hidden;
+        transition: box-shadow 0.2s ease, transform 0.2s ease;
+      }
+
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 4px;
+        background: var(--border-strong);
+      }
+
+      .card:hover {
+        box-shadow: var(--shadow-lg);
+      }
+
+      .card__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+        margin-bottom: 0.5rem;
+      }
+
+      .card__title {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+
+      .pill {
+        flex: none;
+        padding: 0.14rem 0.55rem;
+        border-radius: var(--r-full);
+        background: var(--bg-tint);
+        color: var(--text-3);
+        font-size: 0.68rem;
+        font-weight: 650;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      /* the number you actually read */
+      .hero {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0 0.6rem;
+        margin: 0.1rem 0 0.6rem;
+      }
+
+      .hero__value,
+      .hero__now,
+      .hero__none {
+        font-size: clamp(2.3rem, 11vw, 3.1rem);
+        font-weight: 800;
+        letter-spacing: -0.045em;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .hero__caption {
+        font-size: 0.9rem;
+        font-weight: 550;
+        color: var(--text-2);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .detail {
+        margin: 0;
+        font-size: 0.88rem;
+        color: var(--text-2);
+      }
+
+      .route {
+        display: inline-block;
+        padding: 0.05rem 0.4rem;
+        margin-right: 0.1rem;
+        border-radius: var(--r-sm);
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .badge {
+        display: inline-block;
+        margin-top: 0.6rem;
+        padding: 0.1rem 0.5rem;
+        border: 1px solid var(--border);
+        border-radius: var(--r-full);
+        font-size: 0.68rem;
+        font-weight: 600;
+        color: var(--text-3);
+        cursor: help;
+      }
+
+      .badge--live {
+        color: var(--go);
+        border-color: currentcolor;
+      }
+
+      .then {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: baseline;
+        margin: 0.75rem 0 0;
+        padding-top: 0.7rem;
+        border-top: 1px dashed var(--border);
+        font-size: 0.8rem;
+        color: var(--text-3);
+        font-variant-numeric: tabular-nums;
+        white-space: pre-wrap;
+      }
+
+      .then__label {
+        font-weight: 650;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        font-size: 0.66rem;
+        color: var(--text-3);
+      }
+
+      .card__actions {
+        position: absolute;
+        right: 0.85rem;
+        bottom: 0.8rem;
+      }
+
+      /* --- per-status treatments --- */
+
+      .card--leave_now {
+        background: var(--go-soft);
+        border-color: var(--go-line);
+      }
+      .card--leave_now::before {
+        background: var(--go-line);
+      }
+      .card--leave_now .hero__now {
+        color: var(--go);
+      }
+      .card--leave_now .pill {
+        background: var(--go-line);
+        color: #fff;
+      }
+
+      .card--leave_at::before {
+        background: var(--wait);
+      }
+      .card--leave_at .hero__value {
+        color: var(--wait);
+      }
+      .card--leave_at .pill {
+        background: var(--wait-soft);
+        color: var(--wait);
+      }
+
+      .card--no_service {
+        background: var(--none-soft);
+      }
+      .card--no_service::before {
+        background: var(--none);
+      }
+      .card--no_service .hero__none {
+        color: var(--none);
+        font-size: clamp(1.6rem, 7vw, 2rem);
+      }
+
+      .card--scheduled .hero__value {
+        color: var(--text-3);
+      }
+
+      .card--error {
+        background: var(--none-soft);
+        color: var(--none);
+        font-size: 0.88rem;
+      }
+      .card--error::before {
+        background: var(--none);
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        .card--leave_now {
+          animation: rise 0.35s ease-out;
+        }
+        @keyframes rise {
+          from {
+            transform: translateY(4px);
+            opacity: 0.6;
+          }
+        }
+      }
+
+      /* ---------- empty state ---------- */
+
+      .empty {
+        padding: 1.6rem 1.3rem;
+        text-align: center;
+        background: var(--surface);
+        border: 1px dashed var(--border-strong);
+        border-radius: var(--r-lg);
+      }
+
+      .empty__title {
+        margin: 0;
+        font-weight: 650;
+      }
+
+      .empty__body {
+        margin: 0.3rem auto 0;
+        max-width: 24rem;
+        font-size: 0.88rem;
+        color: var(--text-2);
+      }
+
+      /* ---------- add-a-commute panel ---------- */
+
+      .panel {
+        margin-top: 2rem;
+        padding: 1.25rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .form {
+        display: grid;
+        gap: 1.15rem;
+        margin-top: 0.9rem;
+      }
+
+      .field {
+        display: grid;
+        gap: 0.3rem;
+      }
+
+      .field__label {
+        font-size: 0.82rem;
+        font-weight: 650;
+      }
+
+      .field-row {
+        display: grid;
+        gap: 0.8rem;
+        grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+      }
+
+      input[type="text"],
+      input[type="search"],
+      input[type="number"],
+      input[type="time"] {
+        width: 100%;
+        padding: 0.55rem 0.7rem;
+        font: inherit;
+        color: var(--text);
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+
+      .with-unit {
+        position: relative;
+        display: block;
+      }
+
+      .with-unit .unit {
+        position: absolute;
+        top: 50%;
+        right: 0.7rem;
+        transform: translateY(-50%);
+        font-size: 0.78rem;
+        color: var(--text-3);
+        pointer-events: none;
+      }
+
+      .with-unit input {
+        padding-right: 2.6rem;
+      }
+
+      .inline {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .picked {
+        margin: 0;
+        padding: 0.45rem 0.65rem;
+        background: var(--accent-soft);
+        border-radius: var(--r-md);
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
+
+      .picked[data-empty="true"] {
+        background: var(--surface-2);
+        color: var(--text-3);
+        font-weight: 400;
+      }
+
+      /* search results */
+
+      .results {
+        display: grid;
+        max-height: 15rem;
+        overflow-y: auto;
+        margin-top: 0.15rem;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        background: var(--surface-2);
+      }
+
+      .result {
+        display: grid;
+        gap: 0.05rem;
+        padding: 0.55rem 0.7rem;
+        text-align: left;
+        background: none;
+        border: 0;
+        border-bottom: 1px solid var(--border);
+        font: inherit;
+        color: var(--text);
+        cursor: pointer;
+      }
+
+      .result:last-child {
+        border-bottom: 0;
+      }
+
+      .result:hover,
+      .result:focus-visible {
+        background: var(--accent-soft);
+        outline: none;
+      }
+
+      .result__name {
+        font-size: 0.88rem;
+        font-weight: 600;
+      }
+
+      .result__meta {
+        font-size: 0.75rem;
+        color: var(--text-3);
+      }
+
+      /* bus chips + day pills */
+
+      .chips,
+      .days {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-top: 0.15rem;
+      }
+
+      .chip,
+      .day {
+        position: relative;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .chip input,
+      .day input {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .chip span,
+      .day span {
+        display: block;
+        padding: 0.3rem 0.7rem;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-full);
+        font-size: 0.82rem;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        color: var(--text-2);
+        transition: all 0.15s ease;
+      }
+
+      .chip input:checked + span,
+      .day input:checked + span {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+
+      .chip input:focus-visible + span,
+      .day input:focus-visible + span {
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+
+      /* ---------- buttons ---------- */
+
+      .primary-btn {
+        justify-self: start;
+        padding: 0.6rem 1.3rem;
+        font: inherit;
+        font-weight: 650;
+        color: #fff;
+        background: var(--accent);
+        border: 0;
+        border-radius: var(--r-md);
+        box-shadow: var(--shadow-sm);
+        cursor: pointer;
+        transition: filter 0.15s ease, transform 0.1s ease;
+      }
+
+      .primary-btn:hover {
+        filter: brightness(1.1);
+      }
+
+      .primary-btn:active {
+        transform: translateY(1px);
+      }
+
+      .chip-btn {
+        flex: none;
+        padding: 0.35rem 0.75rem;
+        font: inherit;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--text-2);
+        background: var(--surface);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--r-full);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.15s ease;
+      }
+
+      .chip-btn:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+
+      .link-btn {
+        padding: 0.1rem 0.35rem;
+        font: inherit;
+        font-size: 0.74rem;
+        background: none;
+        border: 0;
+        border-radius: var(--r-sm);
+        color: var(--text-3);
+        cursor: pointer;
+      }
+
+      .link-btn:hover {
+        color: var(--none);
+        background: var(--none-soft);
+      }
+
+      /* ---------- notices + footer ---------- */
+
+      .notice {
+        margin: 0 0 1rem;
+        padding: 0.6rem 0.85rem;
+        background: var(--accent-soft);
+        border-radius: var(--r-md);
+        font-size: 0.86rem;
+        color: var(--accent);
+      }
+
+      .notice.is-error {
+        background: var(--none-soft);
+        color: var(--none);
+      }
+
+      .footer {
+        margin-top: 2.5rem;
+        padding-top: 1.1rem;
+        border-top: 1px solid var(--border);
+        font-size: 0.76rem;
+        color: var(--text-3);
+      }
+
+      .footer p {
+        margin: 0 0 0.4rem;
+      }
+
+      .footer a {
+        color: var(--accent);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 2px;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+    </style>
   </head>
   <body>
     <div class="shell">
       <header class="masthead">
         <p class="masthead__eyebrow">Singapore buses</p>
-        <h1 class="masthead__title">Leave Now</h1>
+        <h1 class="masthead__title">When to Leave</h1>
         <p class="masthead__sub">
           When to walk out the door to catch your bus.
         </p>
@@ -144,6 +824,1098 @@
       </footer>
     </div>
 
-    <script type="module" src="./src/main.js"></script>
+    <script type="module">
+      /* ===== time.js ===== */
+      /**
+       * Singapore time helpers.
+       *
+       * Singapore is permanently UTC+08:00 and has observed no DST since 1935, so a
+       * fixed offset is safe here and avoids depending on the device's timezone.
+       */
+
+      const SGT_OFFSET_MS = 8 * 60 * 60 * 1000;
+      const MINUTE_MS = 60 * 1000;
+
+      /** @typedef {{year: number, month: number, day: number}} SgtDate */
+
+      /**
+       * Wall-clock calendar fields for a timestamp, as seen in Singapore.
+       * @param {number} ts epoch milliseconds
+       */
+      function sgtParts(ts) {
+        const d = new Date(ts + SGT_OFFSET_MS);
+        return {
+          year: d.getUTCFullYear(),
+          month: d.getUTCMonth() + 1,
+          day: d.getUTCDate(),
+          hour: d.getUTCHours(),
+          minute: d.getUTCMinutes(),
+          /** 0 = Sunday .. 6 = Saturday */
+          weekday: d.getUTCDay(),
+        };
+      }
+
+      /**
+       * Convert a Singapore wall-clock date and time into epoch milliseconds.
+       * @param {SgtDate} date
+       * @param {number} hour
+       * @param {number} minute
+       */
+      function sgtToTimestamp(date, hour, minute) {
+        return Date.UTC(date.year, date.month - 1, date.day, hour, minute) - SGT_OFFSET_MS;
+      }
+
+      /**
+       * Parse an "HH:MM" string into hour and minute.
+       * @param {string} hhmm
+       * @returns {{hour: number, minute: number}}
+       */
+      function parseHHMM(hhmm) {
+        const match = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm).trim());
+        if (!match) throw new Error(`Invalid time "${hhmm}", expected HH:MM`);
+        const hour = Number(match[1]);
+        const minute = Number(match[2]);
+        if (hour > 23 || minute > 59) throw new Error(`Invalid time "${hhmm}"`);
+        return { hour, minute };
+      }
+
+      /**
+       * Format a timestamp as "HH:MM" in Singapore time.
+       * @param {number} ts epoch milliseconds
+       */
+      function formatHHMM(ts) {
+        const { hour, minute } = sgtParts(ts);
+        return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+      }
+
+      /**
+       * Add whole days to a Singapore calendar date.
+       * @param {SgtDate} date
+       * @param {number} days
+       * @returns {SgtDate}
+       */
+      function addDays(date, days) {
+        const d = new Date(Date.UTC(date.year, date.month - 1, date.day));
+        d.setUTCDate(d.getUTCDate() + days);
+        return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+      }
+
+      /**
+       * Weekday (0 = Sunday) for a Singapore calendar date.
+       * @param {SgtDate} date
+       */
+      function weekdayOf(date) {
+        return new Date(Date.UTC(date.year, date.month - 1, date.day)).getUTCDay();
+      }
+
+      /* ===== planner.js ===== */
+      /**
+       * Pure departure-decision logic. No I/O, no DOM, no clock reads — everything
+       * arrives as an argument so this is fully testable.
+       *
+       * The question is deliberately narrow: given the next buses at my stop, when do
+       * I need to walk out the door? There is no destination and no arrival target.
+       */
+
+
+      /**
+       * How long before the intended departure a commute starts showing live buses,
+       * and how long after it keeps doing so.
+       */
+      const ACTIVE_LEAD_MIN = 45;
+      const ACTIVE_TRAIL_MIN = 60;
+
+      /**
+       * @typedef {object} Commute
+       * @property {string} id
+       * @property {string} label
+       * @property {string} boardStop      stop code you walk to
+       * @property {string[]} services     buses you are willing to take
+       * @property {number} walkToStopMin  door to stop
+       * @property {number} bufferMin      safety margin
+       * @property {string} departAfterHHMM  when you intend to catch a bus
+       * @property {number[]} activeDays   0 = Sunday .. 6 = Saturday
+       */
+
+      /**
+       * @typedef {object} Arrival
+       * @property {string} service
+       * @property {number} durationMs  time until it reaches the stop
+       * @property {boolean} monitored  true when backed by live GPS, false when scheduled
+       * @property {string} [load]
+       * @property {string} [type]
+       */
+
+      /** @typedef {'LEAVE_NOW'|'LEAVE_AT'|'NO_SERVICE'|'SCHEDULED'} DepartureStatus */
+
+      /**
+       * @typedef {object} Candidate
+       * @property {string} service
+       * @property {boolean} monitored
+       * @property {string} [load]
+       * @property {number} busAtStop
+       * @property {boolean} catchable
+       * @property {number} leaveAt
+       */
+
+      /**
+       * @typedef {object} Decision
+       * @property {DepartureStatus} status
+       * @property {number|null} leaveAt
+       * @property {string|null} leaveAtLabel
+       * @property {number|null} minutesUntilLeave
+       * @property {Candidate|null} bus
+       * @property {Candidate[]} candidates
+       * @property {boolean} live  true when the answer came from real arrivals
+       * @property {number} [nextRunTs]
+       */
+
+      const allDays = [0, 1, 2, 3, 4, 5, 6];
+
+      /** @param {Commute} commute */
+      function daysOf(commute) {
+        return commute.activeDays?.length ? commute.activeDays : allDays;
+      }
+
+      /**
+       * The next time this commute comes around, at or after `now`.
+       * @param {Commute} commute
+       * @param {number} now
+       */
+      function nextRun(commute, now) {
+        const { hour, minute } = parseHHMM(commute.departAfterHHMM);
+        const days = daysOf(commute);
+        const today = sgtParts(now);
+
+        for (let offset = 0; offset < 8; offset += 1) {
+          const date = offset === 0 ? today : addDays(today, offset);
+          if (!days.includes(weekdayOf(date))) continue;
+          const ts = sgtToTimestamp(date, hour, minute);
+          if (ts > now) return ts;
+        }
+        return sgtToTimestamp(addDays(today, 7), hour, minute);
+      }
+
+      /**
+       * Is this commute close enough to its departure time to show live buses?
+       * @param {Commute} commute
+       * @param {number} now
+       */
+      function isActiveNow(commute, now) {
+        const { hour, minute } = parseHHMM(commute.departAfterHHMM);
+        const today = sgtParts(now);
+        if (!daysOf(commute).includes(today.weekday)) return false;
+
+        const departTs = sgtToTimestamp(today, hour, minute);
+        return (
+          now >= departTs - ACTIVE_LEAD_MIN * MINUTE_MS &&
+          now <= departTs + ACTIVE_TRAIL_MIN * MINUTE_MS
+        );
+      }
+
+      /**
+       * Decide when to leave the house.
+       *
+       * @param {object} input
+       * @param {Commute} input.commute
+       * @param {Arrival[]} input.arrivals arrivals at the boarding stop
+       * @param {number} input.now epoch ms
+       * @returns {Decision}
+       */
+      function decideDeparture({ commute, arrivals, now }) {
+        const lead = (commute.walkToStopMin + commute.bufferMin) * MINUTE_MS;
+
+        // Outside the active window, live arrivals are irrelevant — the next bus now
+        // is not the bus you are catching. Fall back to plain arithmetic.
+        if (!isActiveNow(commute, now)) {
+          const runTs = nextRun(commute, now);
+          const leaveAt = runTs - lead;
+          return {
+            status: 'SCHEDULED',
+            leaveAt,
+            leaveAtLabel: formatHHMM(leaveAt),
+            minutesUntilLeave: Math.round((leaveAt - now) / MINUTE_MS),
+            bus: null,
+            candidates: [],
+            live: false,
+            nextRunTs: runTs,
+          };
+        }
+
+        const wanted = new Set(commute.services);
+        const candidates = arrivals
+          .filter((a) => wanted.size === 0 || wanted.has(a.service))
+          .map((a) => {
+            const busAtStop = now + a.durationMs;
+            return {
+              service: a.service,
+              monitored: a.monitored,
+              load: a.load,
+              busAtStop,
+              // You have to physically reach the stop before the bus does.
+              catchable: busAtStop >= now + commute.walkToStopMin * MINUTE_MS,
+              leaveAt: busAtStop - lead,
+            };
+          })
+          .sort((a, b) => a.busAtStop - b.busAtStop);
+
+        const catchable = candidates.filter((c) => c.catchable);
+
+        if (catchable.length === 0) {
+          return {
+            status: 'NO_SERVICE',
+            leaveAt: null,
+            leaveAtLabel: null,
+            minutesUntilLeave: null,
+            bus: null,
+            candidates,
+            live: true,
+          };
+        }
+
+        // The soonest bus you can still make.
+        const chosen = catchable[0];
+        return {
+          status: chosen.leaveAt <= now ? 'LEAVE_NOW' : 'LEAVE_AT',
+          leaveAt: chosen.leaveAt,
+          leaveAtLabel: formatHHMM(chosen.leaveAt),
+          minutesUntilLeave: Math.round((chosen.leaveAt - now) / MINUTE_MS),
+          bus: chosen,
+          candidates,
+          live: true,
+        };
+      }
+
+      /* ===== busdata.js ===== */
+      /**
+       * Static bus data from data.busrouter.sg (stops and route sequences).
+       * Both files are immutable day-to-day and served with a 24h cache header.
+       */
+
+      const BASE_URL = 'https://data.busrouter.sg/v1';
+
+      /**
+       * @typedef {object} Stop
+       * @property {string} code
+       * @property {number} lat
+       * @property {number} lng
+       * @property {string} name
+       * @property {string} road
+       */
+
+      /**
+       * stops.json stores each stop as [lng, lat, name, road] — note lng comes first.
+       * @param {Record<string, [number, number, string, string]>} raw
+       * @returns {Map<string, Stop>}
+       */
+      function parseStops(raw) {
+        const stops = new Map();
+        for (const [code, value] of Object.entries(raw)) {
+          const [lng, lat, name, road] = value;
+          stops.set(code, { code, lat, lng, name, road });
+        }
+        return stops;
+      }
+
+      /**
+       * Every service that calls at a stop, in natural service order.
+       *
+       * Direction does not matter here: the app only asks when the next bus reaches
+       * your stop, not where it goes afterwards.
+       *
+       * @param {Record<string, {name: string, routes: string[][]}>} services
+       * @param {string} stopCode
+       * @returns {{service: string, name: string}[]}
+       */
+      function servicesAtStop(services, stopCode) {
+        /** @type {{service: string, name: string}[]} */
+        const found = [];
+
+        for (const [no, definition] of Object.entries(services)) {
+          const routes = definition.routes ?? [];
+          if (routes.some((sequence) => sequence.includes(stopCode))) {
+            found.push({ service: no, name: definition.name ?? '' });
+          }
+        }
+
+        return found.sort((a, b) =>
+          a.service.localeCompare(b.service, 'en', { numeric: true }),
+        );
+      }
+
+      /**
+       * Rank stops by how well they match a free-text query (name or road).
+       * @param {Map<string, Stop>} stops
+       * @param {string} query
+       * @param {number} [limit]
+       * @returns {Stop[]}
+       */
+      function searchStops(stops, query, limit = 20) {
+        const needle = query.trim().toLowerCase();
+        if (needle.length < 2) return [];
+
+        /** @type {{stop: Stop, score: number}[]} */
+        const scored = [];
+        for (const stop of stops.values()) {
+          const name = stop.name.toLowerCase();
+          const road = stop.road.toLowerCase();
+          let score = -1;
+          if (stop.code === needle) score = 0;
+          else if (name.startsWith(needle)) score = 1;
+          else if (name.includes(needle)) score = 2;
+          else if (road.startsWith(needle)) score = 3;
+          else if (road.includes(needle)) score = 4;
+          if (score >= 0) scored.push({ stop, score });
+        }
+
+        scored.sort((a, b) => a.score - b.score || a.stop.name.localeCompare(b.stop.name));
+        return scored.slice(0, limit).map((entry) => entry.stop);
+      }
+
+      /**
+       * Straight-line distance in metres. Good enough for ordering nearby stops.
+       * @param {{lat: number, lng: number}} a
+       * @param {{lat: number, lng: number}} b
+       */
+      function distanceMetres(a, b) {
+        const R = 6_371_000;
+        /** @param {number} deg */
+        const toRad = (deg) => (deg * Math.PI) / 180;
+        const dLat = toRad(b.lat - a.lat);
+        const dLng = toRad(b.lng - a.lng);
+        const h =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+        return 2 * R * Math.asin(Math.sqrt(h));
+      }
+
+      /**
+       * Stops nearest to a coordinate.
+       * @param {Map<string, Stop>} stops
+       * @param {{lat: number, lng: number}} origin
+       * @param {number} [limit]
+       */
+      function nearestStops(stops, origin, limit = 10) {
+        return [...stops.values()]
+          .map((stop) => ({ ...stop, distance: Math.round(distanceMetres(origin, stop)) }))
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, limit);
+      }
+
+      /**
+       * @typedef {{stops: Map<string, Stop>, services: Record<string, {name: string, routes: string[][]}>}} BusData
+       */
+
+      /** @type {Promise<BusData>|null} */
+      let staticDataPromise = null;
+
+      /**
+       * Load stops and services, caching the parsed result in memory.
+       * @param {{fetchImpl?: typeof fetch}} [options]
+       * @returns {Promise<BusData>}
+       */
+      function loadBusData(options = {}) {
+        if (staticDataPromise) return staticDataPromise;
+        const doFetch = options.fetchImpl ?? fetch;
+
+        staticDataPromise = (async () => {
+          const [stopsRes, servicesRes] = await Promise.all([
+            doFetch(`${BASE_URL}/stops.json`),
+            doFetch(`${BASE_URL}/services.json`),
+          ]);
+          if (!stopsRes.ok || !servicesRes.ok) {
+            throw new Error('Could not load bus data from data.busrouter.sg');
+          }
+          const [stopsRaw, services] = await Promise.all([stopsRes.json(), servicesRes.json()]);
+          return { stops: parseStops(stopsRaw), services };
+        })().catch((error) => {
+          staticDataPromise = null; // allow a retry
+          throw error;
+        });
+
+        return staticDataPromise;
+      }
+
+      /* ===== arrivals.js ===== */
+      /**
+       * arrivelah2 client.
+       *
+       * We keep `duration_ms` (server-relative) rather than the absolute `time` field,
+       * so a wrong clock on the user's device cannot skew "arriving in N minutes".
+       */
+
+      const ARRIVALS_URL = 'https://arrivelah2.busrouter.sg/';
+
+      /** Upstream caches for 15s; don't hammer a free community API. */
+      const CACHE_TTL_MS = 15_000;
+
+      /** @type {Map<string, {at: number, arrivals: Arrival[]}>} */
+      const cache = new Map();
+
+      /**
+       * Flatten one service entry into individual arrivals.
+       * `next`/`next2`/`next3` are each nullable, and `subsequent` is observed to
+       * duplicate `next2` in live responses, so results are deduped by arrival time.
+       * @param {any} service
+       * @returns {Arrival[]}
+       */
+      function flattenService(service) {
+        const seen = new Set();
+        /** @type {Arrival[]} */
+        const out = [];
+
+        for (const key of ['next', 'next2', 'next3', 'subsequent']) {
+          const entry = service[key];
+          if (!entry || typeof entry.duration_ms !== 'number') continue;
+          // Buses already past the stop report a negative duration; ignore them.
+          if (entry.duration_ms < 0) continue;
+          if (seen.has(entry.duration_ms)) continue;
+          seen.add(entry.duration_ms);
+          out.push({
+            service: String(service.no),
+            durationMs: entry.duration_ms,
+            monitored: entry.monitored === 1,
+            load: entry.load,
+            type: entry.type,
+          });
+        }
+        return out;
+      }
+
+      /**
+       * Normalise a full arrivelah2 response into a flat, sorted arrival list.
+       * @param {any} payload
+       * @returns {Arrival[]}
+       */
+      function normaliseArrivals(payload) {
+        /** @type {any[]} */
+        const services = Array.isArray(payload?.services) ? payload.services : [];
+        return services
+          .flatMap(flattenService)
+          .sort((/** @type {Arrival} */ a, /** @type {Arrival} */ b) =>
+            a.durationMs - b.durationMs);
+      }
+
+      /**
+       * Fetch arrivals for a stop, with a short cache.
+       * @param {string} stopCode
+       * @param {{now?: number, fetchImpl?: typeof fetch}} [options]
+       */
+      async function fetchArrivals(stopCode, options = {}) {
+        const now = options.now ?? Date.now();
+        const doFetch = options.fetchImpl ?? fetch;
+
+        const hit = cache.get(stopCode);
+        if (hit && now - hit.at < CACHE_TTL_MS) return hit.arrivals;
+
+        const response = await doFetch(`${ARRIVALS_URL}?id=${encodeURIComponent(stopCode)}`);
+        if (!response.ok) {
+          throw new Error(`Arrivals request failed for stop ${stopCode} (${response.status})`);
+        }
+        const arrivals = normaliseArrivals(await response.json());
+        cache.set(stopCode, { at: now, arrivals });
+        return arrivals;
+      }
+
+      function clearArrivalsCache() {
+        cache.clear();
+      }
+
+      /* ===== storage.js ===== */
+      /**
+       * Commute persistence in localStorage. The key is versioned so a future schema
+       * change can migrate rather than crash on old data.
+       */
+
+      // v2 dropped the destination stop, ride time and arrival target, so old
+      // records are not readable as the current shape.
+      const KEY = 'bus-app.commutes.v2';
+
+      /**
+       * @returns {Commute[]}
+       */
+      function loadCommutes() {
+        try {
+          const raw = localStorage.getItem(KEY);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          // Corrupt or unavailable storage (private mode, quota) must not break the page.
+          return [];
+        }
+      }
+
+      /** @param {Commute[]} commutes */
+      function saveCommutes(commutes) {
+        try {
+          localStorage.setItem(KEY, JSON.stringify(commutes));
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      /** @param {Commute} commute */
+      function addCommute(commute) {
+        const all = loadCommutes();
+        all.push(commute);
+        saveCommutes(all);
+        return all;
+      }
+
+      /** @param {string} id */
+      function removeCommute(id) {
+        const all = loadCommutes().filter((c) => c.id !== id);
+        saveCommutes(all);
+        return all;
+      }
+
+      function newId() {
+        return `c${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
+      }
+
+      /**
+       * Replace one commute in place, keeping order.
+       * @param {Commute} commute
+       */
+      function updateCommute(commute) {
+        const all = loadCommutes().map((c) => (c.id === commute.id ? commute : c));
+        saveCommutes(all);
+        return all;
+      }
+
+      /* ===== ui.js ===== */
+      /**
+       * DOM rendering. Kept separate from planner.js so the decision logic stays
+       * testable without a browser.
+       */
+
+
+      const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+      /**
+       * Short label for each status, shown as a pill on the card.
+       * @type {Record<DepartureStatus, string>}
+       */
+      const STATUS_PILL = {
+        LEAVE_NOW: 'Go now',
+        LEAVE_AT: 'Upcoming',
+        NO_SERVICE: 'No bus',
+        SCHEDULED: 'Later',
+      };
+
+      /**
+       * @param {number} minutes
+       * @returns {string}
+       */
+      function describeMinutes(minutes) {
+        if (minutes <= 0) return 'now';
+        if (minutes < 60) return `${minutes} min`;
+        const h = Math.floor(minutes / 60);
+        const m = minutes % 60;
+        return m ? `${h}h ${m}m` : `${h}h`;
+      }
+
+      /**
+       * "Tomorrow 08:00", "Saturday 09:30", or just "08:00" for later today.
+       * @param {number} ts
+       * @param {number} now
+       */
+      function describeWhen(ts, now) {
+        const a = sgtParts(now);
+        const b = sgtParts(ts);
+        if (a.day === b.day && a.month === b.month) return formatHHMM(ts);
+        const oneDay = 24 * 60 * 60 * 1000;
+        if (ts - now < oneDay * 1.5) return `Tomorrow ${formatHHMM(ts)}`;
+        return `${DAY_NAMES[b.weekday]} ${formatHHMM(ts)}`;
+      }
+
+      /** @param {string} tag @param {string} [className] @param {string} [text] */
+      function make(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      /**
+       * Render one commute card.
+       *
+       * @param {object} params
+       * @param {Commute} params.commute
+       * @param {Decision} params.decision
+       * @param {number} params.now
+       * @param {{name: string, road: string}} [params.boardStopInfo]
+       * @returns {HTMLElement}
+       */
+      function renderDecision({ commute, decision, now, boardStopInfo }) {
+        const card = make('article', `card card--${decision.status.toLowerCase()}`);
+
+        /* --- header --- */
+        const head = make('header', 'card__head');
+        head.append(make('h3', 'card__title', commute.label));
+        head.append(make('span', 'pill', STATUS_PILL[decision.status]));
+        card.append(head);
+
+        /* --- the number you actually read --- */
+        const hero = make('div', 'hero');
+
+        if (decision.status === 'LEAVE_NOW') {
+          hero.append(make('span', 'hero__now', 'Leave now'));
+        } else if (decision.status === 'NO_SERVICE') {
+          hero.append(make('span', 'hero__none', 'No bus'));
+        } else if (decision.minutesUntilLeave !== null) {
+          const value = make('span', 'hero__value');
+          value.dataset.leaveAt = String(decision.leaveAt ?? '');
+          value.textContent = describeMinutes(decision.minutesUntilLeave);
+          hero.append(value);
+          hero.append(make('span', 'hero__caption', `Leave at ${decision.leaveAtLabel}`));
+        }
+        card.append(hero);
+
+        /* --- supporting detail --- */
+        const stopName = boardStopInfo?.name ?? commute.boardStop;
+
+        if (decision.bus) {
+          const line = make('p', 'detail');
+          line.append(make('strong', 'route', decision.bus.service));
+          line.append(
+            document.createTextNode(
+              ` reaches ${stopName} at ${formatHHMM(decision.bus.busAtStop)}`,
+            ),
+          );
+          card.append(line);
+
+          const badge = make(
+            'span',
+            `badge badge--${decision.bus.monitored ? 'live' : 'sched'}`,
+            decision.bus.monitored ? 'Live tracking' : 'Timetable estimate',
+          );
+          badge.title = decision.bus.monitored
+            ? 'Backed by a live vehicle position'
+            : 'Operator timetable estimate, not a tracked bus';
+          card.append(badge);
+        } else if (decision.status === 'NO_SERVICE') {
+          card.append(
+            make(
+              'p',
+              'detail',
+              `Nothing you can still reach at ${stopName}. Buses within ${commute.walkToStopMin} min are too soon to walk to.`,
+            ),
+          );
+        } else if (decision.status === 'SCHEDULED' && decision.nextRunTs) {
+          card.append(
+            make(
+              'p',
+              'detail',
+              `Next run ${describeWhen(decision.nextRunTs, now)} from ${stopName}. Live buses appear closer to the time.`,
+            ),
+          );
+        }
+
+        /* --- following buses --- */
+        const later = decision.candidates.filter((c) => c.catchable && c !== decision.bus);
+        if (later.length > 0) {
+          const row = make('p', 'then');
+          row.append(make('span', 'then__label', 'Then'));
+          row.append(
+            document.createTextNode(
+              later
+                .slice(0, 3)
+                .map((c) => `${c.service} · ${formatHHMM(c.busAtStop)}`)
+                .join('   '),
+            ),
+          );
+          card.append(row);
+        }
+
+        /* --- actions --- */
+        const actions = make('div', 'card__actions');
+        const remove = /** @type {HTMLButtonElement} */ (
+          make('button', 'link-btn link-btn--danger', 'Delete')
+        );
+        remove.type = 'button';
+        remove.dataset.action = 'delete';
+        remove.dataset.id = commute.id;
+        actions.append(remove);
+        card.append(actions);
+
+        return card;
+      }
+
+      /**
+       * Update countdown text in place, without refetching arrivals.
+       * @param {HTMLElement} root
+       * @param {number} [now]
+       */
+      function tickCountdowns(root, now = Date.now()) {
+        const nodes = /** @type {NodeListOf<HTMLElement>} */ (
+          root.querySelectorAll('.hero__value')
+        );
+        for (const node of nodes) {
+          const leaveAt = Number(node.dataset.leaveAt);
+          if (!Number.isFinite(leaveAt) || leaveAt === 0) continue;
+          node.textContent = describeMinutes(Math.round((leaveAt - now) / 60000));
+        }
+      }
+
+      /**
+       * Fire a system notification, but only if permission is already granted.
+       * Never prompts as a side effect of loading the page.
+       * @param {Decision} decision
+       * @param {Commute} commute
+       */
+      function maybeNotify(decision, commute) {
+        if (decision.status !== 'LEAVE_NOW') return false;
+        if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
+          return false;
+        }
+        new Notification(`Leave now — ${commute.label}`, {
+          body: decision.bus
+            ? `Bus ${decision.bus.service} reaches your stop at ${formatHHMM(decision.bus.busAtStop)}`
+            : 'Time to head for the bus stop',
+          tag: `commute-${commute.id}`,
+        });
+        return true;
+      }
+
+      /* ===== main.js ===== */
+      /**
+       * Entry point. On load: restore saved commutes, fetch live arrivals for the ones
+       * that are close to their departure time, and show when to leave.
+       *
+       * Arrivals refresh on load and when the tab regains focus, never in a tight
+       * poll — arrivelah2 is a small community service.
+       */
+
+
+      /** @typedef {Stop} Stop */
+
+      /** @type {BusData|null} */
+      let busData = null;
+
+      /** @type {Stop|null} */
+      let pickedStop = null;
+
+      /** @param {string} id @returns {HTMLElement} */
+      function el(id) {
+        const node = document.getElementById(id);
+        if (!node) throw new Error(`Missing element #${id}`);
+        return node;
+      }
+
+      /** @param {string} id @returns {HTMLInputElement} */
+      function input(id) {
+        return /** @type {HTMLInputElement} */ (el(id));
+      }
+
+      /** @param {string} message */
+      function setStatus(message, isError = false) {
+        const node = el('status');
+        node.textContent = message;
+        node.classList.toggle('is-error', isError);
+        node.hidden = !message;
+      }
+
+      /* ---------- cards ---------- */
+
+      async function refresh() {
+        const commutes = loadCommutes();
+        const container = el('cards');
+        container.replaceChildren();
+        el('empty').hidden = commutes.length > 0;
+        if (commutes.length === 0) {
+          el('updated').textContent = '';
+          return;
+        }
+
+        const now = Date.now();
+
+        // Sort so whatever is happening soonest sits at the top.
+        const ordered = [...commutes].sort((a, b) => {
+          const activeDiff = Number(isActiveNow(b, now)) - Number(isActiveNow(a, now));
+          return activeDiff || a.departAfterHHMM.localeCompare(b.departAfterHHMM);
+        });
+
+        for (const commute of ordered) {
+          let decision;
+          try {
+            // Only spend a request when the commute is actually near its time.
+            const arrivals = isActiveNow(commute, now)
+              ? await fetchArrivals(commute.boardStop, { now })
+              : [];
+            decision = decideDeparture({ commute, arrivals, now });
+          } catch (error) {
+            const card = document.createElement('article');
+            card.className = 'card card--error';
+            card.textContent = `${commute.label}: could not load arrivals (${
+              error instanceof Error ? error.message : String(error)
+            })`;
+            container.append(card);
+            continue;
+          }
+
+          container.append(
+            renderDecision({
+              commute,
+              decision,
+              now,
+              boardStopInfo: busData?.stops.get(commute.boardStop),
+            }),
+          );
+          maybeNotify(decision, commute);
+        }
+
+        el('updated').textContent = `Updated ${new Date(now).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        })}`;
+      }
+
+      /* ---------- stop picker ---------- */
+
+      /**
+       * @param {(Stop & {distance?: number})[]} stops
+       */
+      function renderStopResults(stops) {
+        const container = el('stopResults');
+        container.replaceChildren();
+        if (stops.length === 0) {
+          container.hidden = true;
+          return;
+        }
+        for (const stop of stops) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'result';
+          const name = document.createElement('span');
+          name.className = 'result__name';
+          name.textContent = stop.name;
+          const meta = document.createElement('span');
+          meta.className = 'result__meta';
+          meta.textContent =
+            stop.distance !== undefined
+              ? `${stop.road} · ${stop.code} · ${stop.distance} m`
+              : `${stop.road} · ${stop.code}`;
+          button.append(name, meta);
+          button.addEventListener('click', () => chooseStop(stop));
+          container.append(button);
+        }
+        container.hidden = false;
+      }
+
+      /** @param {Stop} stop */
+      function chooseStop(stop) {
+        pickedStop = stop;
+        const chosen = el('stopChosen');
+        chosen.textContent = `${stop.name} · ${stop.road} (${stop.code})`;
+        chosen.dataset.empty = 'false';
+        el('stopResults').hidden = true;
+        input('stopSearch').value = '';
+        updateServiceOptions();
+      }
+
+      function wireStopPicker() {
+        const search = input('stopSearch');
+
+        search.addEventListener('input', () => {
+          if (!busData) return;
+          renderStopResults(searchStops(busData.stops, search.value));
+        });
+
+        el('stopNearby').addEventListener('click', () => {
+          if (!busData) return;
+          if (!navigator.geolocation) {
+            setStatus('This browser will not share a location. Search by name instead.', true);
+            return;
+          }
+          setStatus('Finding stops near you…');
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              setStatus('');
+              if (!busData) return;
+              renderStopResults(
+                nearestStops(busData.stops, {
+                  lat: position.coords.latitude,
+                  lng: position.coords.longitude,
+                }),
+              );
+            },
+            () => setStatus('Location unavailable. Search by name instead.', true),
+            { timeout: 8000 },
+          );
+        });
+      }
+
+      /** List the buses calling at the chosen stop, as toggleable chips. */
+      function updateServiceOptions() {
+        const container = el('services');
+        const hint = el('servicesHint');
+        container.replaceChildren();
+
+        if (!pickedStop || !busData) {
+          hint.textContent = 'Choose a stop first.';
+          return;
+        }
+
+        const found = servicesAtStop(busData.services, pickedStop.code);
+        if (found.length === 0) {
+          hint.textContent = 'No buses are recorded at that stop.';
+          return;
+        }
+
+        hint.textContent = `${found.length} bus${
+          found.length === 1 ? '' : 'es'
+        } call here. Tick the ones you would actually board.`;
+
+        for (const entry of found) {
+          const chip = document.createElement('label');
+          chip.className = 'chip';
+          const box = document.createElement('input');
+          box.type = 'checkbox';
+          box.value = entry.service;
+          const text = document.createElement('span');
+          text.textContent = entry.service;
+          chip.title = entry.name;
+          chip.append(box, text);
+          container.append(chip);
+        }
+      }
+
+      /* ---------- form ---------- */
+
+      /** @param {string} containerId */
+      function checkedValues(containerId) {
+        const boxes = /** @type {NodeListOf<HTMLInputElement>} */ (
+          el(containerId).querySelectorAll('input:checked')
+        );
+        return [...boxes].map((box) => box.value);
+      }
+
+      /** @param {Event} event */
+      function handleSubmit(event) {
+        event.preventDefault();
+
+        if (!pickedStop) {
+          setStatus('Choose the stop you walk to.', true);
+          return;
+        }
+        const services = checkedValues('services');
+        if (services.length === 0) {
+          setStatus('Tick at least one bus.', true);
+          return;
+        }
+        const activeDays = checkedValues('days').map(Number);
+        if (activeDays.length === 0) {
+          setStatus('Pick at least one day.', true);
+          return;
+        }
+
+        const label = input('label').value.trim() || 'My commute';
+        addCommute({
+          id: newId(),
+          label,
+          boardStop: pickedStop.code,
+          services,
+          walkToStopMin: Number(input('walkTo').value),
+          bufferMin: Number(input('buffer').value),
+          departAfterHHMM: input('departAfter').value,
+          activeDays,
+        });
+
+        setStatus(`Saved “${label}”.`);
+        /** @type {HTMLFormElement} */ (el('form')).reset();
+        pickedStop = null;
+        const chosen = el('stopChosen');
+        chosen.textContent = 'No stop chosen';
+        chosen.dataset.empty = 'true';
+        updateServiceOptions();
+        refresh();
+      }
+
+      /* ---------- alerts opt-in ---------- */
+
+      function wireAlertsButton() {
+        const button = el('alerts');
+        if (typeof Notification === 'undefined') return;
+
+        // Only offer it when it would actually do something.
+        if (Notification.permission === 'default') button.hidden = false;
+
+        button.addEventListener('click', async () => {
+          const result = await Notification.requestPermission();
+          button.hidden = result !== 'default';
+          setStatus(
+            result === 'granted'
+              ? 'Alerts on. This page will notify you when it is time to leave, while it is open.'
+              : 'Alerts stayed off. The page still shows the countdown.',
+            result === 'denied',
+          );
+        });
+      }
+
+      /* ---------- boot ---------- */
+
+      async function init() {
+        el('form').addEventListener('submit', handleSubmit);
+        el('refresh').addEventListener('click', () => refresh());
+        wireAlertsButton();
+
+        // Delete buttons are created dynamically, so listen on the container.
+        el('cards').addEventListener('click', (event) => {
+          const target = /** @type {HTMLElement} */ (event.target);
+          if (target?.dataset.action !== 'delete') return;
+          const id = target.dataset.id;
+          if (!id) return;
+          const commute = loadCommutes().find((c) => c.id === id);
+          if (!confirm(`Delete “${commute?.label ?? 'this commute'}”?`)) return;
+          removeCommute(id);
+          refresh();
+        });
+
+        // Show saved commutes immediately; static data is only needed for stop names.
+        refresh();
+
+        try {
+          setStatus('Loading bus data…');
+          busData = await loadBusData();
+          setStatus('');
+          wireStopPicker();
+          updateServiceOptions();
+          refresh();
+        } catch (error) {
+          setStatus(
+            `Could not load bus data: ${error instanceof Error ? error.message : String(error)}`,
+            true,
+          );
+        }
+
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) refresh();
+        });
+        setInterval(() => tickCountdowns(el('cards')), 1000);
+      }
+
+
+      // Exposed so the test suite can exercise the logic without a browser.
+      globalThis.LeaveNow = {
+        // time
+        SGT_OFFSET_MS, MINUTE_MS, sgtParts, sgtToTimestamp, parseHHMM, formatHHMM,
+        addDays, weekdayOf,
+        // planner
+        ACTIVE_LEAD_MIN, ACTIVE_TRAIL_MIN, nextRun, isActiveNow, decideDeparture,
+        // bus data
+        parseStops, servicesAtStop, searchStops, distanceMetres, nearestStops,
+        // arrivals
+        flattenService, normaliseArrivals,
+        // ui helpers
+        describeMinutes, describeWhen,
+      };
+
+      if (typeof document !== 'undefined') {
+        document.addEventListener('DOMContentLoaded', init);
+      }
+    </script>
   </body>
 </html>

@@ -1,18 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import {
-  ACTIVE_LEAD_MIN,
-  decideDeparture,
-  isActiveNow,
-  nextRun,
-} from '../src/planner.js';
-import { MINUTE_MS, sgtToTimestamp } from '../src/time.js';
+import { loadApp } from './load-app.js';
+
+const { ACTIVE_LEAD_MIN, decideDeparture, isActiveNow, nextRun, MINUTE_MS, sgtToTimestamp } =
+  await loadApp();
 
 /** 2026-08-26 is a Wednesday. */
 const WED = { year: 2026, month: 8, day: 26 };
 const at = (hour, minute) => sgtToTimestamp(WED, hour, minute);
 const on = (day, hour, minute) => sgtToTimestamp({ ...WED, day }, hour, minute);
 
-/** @returns {import('../src/planner.js').Commute} */
+/** @returns {any} */
 function commute(overrides = {}) {
   return {
     id: 'c1',

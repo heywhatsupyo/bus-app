@@ -1,6 +1,6 @@
-# Leave Now
+# When to Leave
 
-A single-page app that answers one question: **when do I leave the house to catch my
+A single-file web app that answers one question: **when do I leave the house to catch my
 bus?**
 
 Save a commute — the stop you walk to, the buses you take, how long the walk is, and the
@@ -10,46 +10,51 @@ arrival data.
 You can save as many commutes as you like at different times. A morning one and an
 evening one are independent; the app shows whichever is closest to its time.
 
+**Live:** https://heywhatsupyo.github.io/bus-app/
+
+## One file
+
+The whole app is `index.html` — markup, styles and logic inline, no build step and no
+dependencies at runtime. Publish it by copying that one file anywhere, or open it
+directly from disk.
+
+There is a caveat to opening it from disk: the app fetches bus data over HTTPS, and some
+browsers refuse cross-origin requests from `file://` pages regardless of CORS headers.
+If the page loads but no bus data appears, serve it instead (`npm start`) or use the
+hosted link above.
+
 ## Why it's this narrow
 
 There is no destination, no arrival target and no journey planning. Earlier versions had
-all three, and none of it earned its place: door-to-door routing needs OneMap, whose
-token can't be embedded safely in a static page and expires every three days — which
-would mean running a server.
+all three and none earned its place: door-to-door routing needs OneMap, whose token
+can't be embedded safely in a static page and expires every three days — which would
+mean running a server.
 
 Getting to the stop on time is the part that actually needs live data, and the part you
 can't eyeball from a timetable. So that's all this does.
 
-## Requirements
-
-Node.js 20 or newer, and Python 3 for the local server. **Node 20.19+ is recommended** —
-20.11 and below cannot run current ESLint or Vitest (see Known constraints).
-
-## Running it
+## Development
 
 ```bash
 npm install
 npm start          # http://localhost:8000
+npm test           # 39 tests
+npm run lint
 ```
 
-ES modules are blocked over `file://`, so the page has to be served rather than opened
-from disk.
+### How the tests reach the code
 
-## Scripts
+The logic lives inline in `index.html`, so `test/load-app.js` extracts the inline
+`<script type="module">`, evaluates it as a data URL in Node, and reads the functions the
+page exposes on `globalThis.LeaveNow`. That keeps `index.html` the single source of
+truth — no build step and no duplicated copy of the logic to drift out of sync.
 
-| Script | What it does |
-| --- | --- |
-| `npm start` | Serve the site on port 8000 |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | `tsc --noEmit` — type-checks the JS via `checkJs` + JSDoc |
-| `npm test` | Vitest, once |
-| `npm run test:watch` | Vitest in watch mode |
-
-No build step. `index.html` loads `src/*.js` directly.
+Trade-off of going single-file: `tsc --noEmit` type-checking is gone, since there are no
+longer any `.js` files for it to read. The tests are the remaining safety net, which is
+why they cover the awkward cases — timezone independence, buses too soon to walk to,
+duplicate arrival entries, and rolling to the next active day.
 
 ## How the decision is made
-
-`src/planner.js` holds the whole algorithm and is pure — no I/O, no DOM, no clock reads:
 
 1. Is this commute near its usual time? Live buses only matter from 45 minutes before
    until 60 minutes after. Outside that, the next bus at the stop is not the bus you
@@ -64,10 +69,9 @@ window, where the answer is arithmetic rather than live data).
 
 ## Alerts
 
-The page shows the countdown whenever it is open. "Enable alerts" additionally grants
-system notifications, so a `LEAVE_NOW` surfaces outside the tab — but only while the
-page is open. There is no backend and no service worker, so nothing fires when the page
-is closed.
+The page shows a countdown whenever it's open. "Enable alerts" additionally grants system
+notifications, so a `LEAVE_NOW` surfaces outside the tab — but only while the page is
+open. There is no backend and no service worker, so nothing fires when it's closed.
 
 ## Data sources
 
