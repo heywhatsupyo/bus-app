@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>When to Leave — Singapore bus commute planner</title>
+    <meta
+      name="description"
+      content="Tells you what time to leave the house to catch your bus and arrive on time, using live Singapore bus arrivals."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🚌</text></svg>"
+    />
+  </head>
+  <body>
+    <header class="header">
+      <h1>When to Leave</h1>
+      <p class="tagline">Live Singapore bus arrivals, working backwards from when you need to be there.</p>
+    </header>
+
+    <main>
+      <p id="status" class="status" hidden></p>
+
+      <section aria-labelledby="now-heading">
+        <div class="section-head">
+          <h2 id="now-heading">Right now</h2>
+          <div class="section-head__actions">
+            <span id="updated" class="updated"></span>
+            <button type="button" id="refresh" class="btn btn--ghost">Refresh</button>
+          </div>
+        </div>
+
+        <div id="decisions" class="decisions"></div>
+
+        <p id="empty" class="empty" hidden>
+          No commutes saved yet. Add one below and this page will tell you when to leave
+          every time you open it.
+        </p>
+      </section>
+
+      <details id="setup" class="setup">
+        <summary>Add a commute</summary>
+
+        <form id="form" class="form">
+          <p class="form__intro">
+            Pick the stop you board at and the stop you get off at. This app does not do
+            address search or transfers — it handles the trips you already know, which is
+            what a daily commute is.
+          </p>
+
+          <label class="field">
+            <span class="field__label">Name</span>
+            <input id="label" type="text" placeholder="Morning to work" autocomplete="off" />
+          </label>
+
+          <fieldset class="field-group">
+            <legend>Boarding stop</legend>
+            <p class="chosen">Chosen: <strong id="boardChosen">none yet</strong></p>
+            <div class="picker">
+              <input id="boardSearch" type="search" placeholder="Search stop or road name…" autocomplete="off" />
+              <button type="button" id="boardNearby" class="btn btn--ghost">Near me</button>
+            </div>
+            <div id="boardResults" class="stop-results" hidden></div>
+          </fieldset>
+
+          <fieldset class="field-group">
+            <legend>Alighting stop</legend>
+            <p class="chosen">Chosen: <strong id="alightChosen">none yet</strong></p>
+            <div class="picker">
+              <input id="alightSearch" type="search" placeholder="Search stop or road name…" autocomplete="off" />
+              <button type="button" id="alightNearby" class="btn btn--ghost">Near me</button>
+            </div>
+            <div id="alightResults" class="stop-results" hidden></div>
+          </fieldset>
+
+          <fieldset class="field-group">
+            <legend>Buses</legend>
+            <p id="servicesHint" class="hint">Choose both stops to see which buses work.</p>
+            <div id="services" class="services"></div>
+          </fieldset>
+
+          <fieldset class="field-group">
+            <legend>Timings</legend>
+            <div class="grid">
+              <label class="field">
+                <span class="field__label">Walk to stop (min)</span>
+                <input id="walkTo" type="number" min="0" max="60" value="5" required />
+              </label>
+              <label class="field">
+                <span class="field__label">Time on bus (min)</span>
+                <input id="ride" type="number" min="1" max="180" value="25" required />
+                <span class="hint">You know this better than any API can guess.</span>
+              </label>
+              <label class="field">
+                <span class="field__label">Walk from stop (min)</span>
+                <input id="walkFrom" type="number" min="0" max="60" value="5" required />
+              </label>
+              <label class="field">
+                <span class="field__label">Safety buffer (min)</span>
+                <input id="buffer" type="number" min="0" max="30" value="3" required />
+              </label>
+              <label class="field">
+                <span class="field__label">Arrive by</span>
+                <input id="target" type="time" value="09:00" required />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="field-group">
+            <legend>Days</legend>
+            <div id="days" class="days">
+              <label><input type="checkbox" value="1" checked /> Mon</label>
+              <label><input type="checkbox" value="2" checked /> Tue</label>
+              <label><input type="checkbox" value="3" checked /> Wed</label>
+              <label><input type="checkbox" value="4" checked /> Thu</label>
+              <label><input type="checkbox" value="5" checked /> Fri</label>
+              <label><input type="checkbox" value="6" /> Sat</label>
+              <label><input type="checkbox" value="0" /> Sun</label>
+            </div>
+          </fieldset>
+
+          <button type="submit" class="btn btn--primary">Save commute</button>
+        </form>
+      </details>
+
+      <footer class="footer">
+        <p>
+          Bus data from
+          <a href="https://busrouter.sg/">busrouter.sg</a> and
+          <a href="https://arrivelah2.busrouter.sg/">arrivelah2</a> — community projects,
+          used sparingly and cached. Arrivals are often timetable estimates rather than
+          tracked buses; each result says which.
+        </p>
+        <p>Saved commutes stay in this browser only. Nothing is uploaded.</p>
+      </footer>
+    </main>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
