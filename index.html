@@ -785,7 +785,7 @@
               </label>
 
               <label class="field">
-                <span class="field__label">Usual time</span>
+                <span class="field__label">Start alerting me at</span>
                 <input id="departAfter" type="time" value="08:00" required />
               </label>
             </div>
@@ -802,8 +802,9 @@
                 <label class="day"><input type="checkbox" value="0" /><span>Sun</span></label>
               </div>
               <p class="hint">
-                Save several commutes at different times — a morning one and an
-                evening one work independently.
+                Alerts run for 90 minutes from the time you set. Save several
+                commutes at different times — a morning one and an evening one work
+                independently.
               </p>
             </div>
 
@@ -919,11 +920,11 @@
 
 
       /**
-       * How long before the intended departure a commute starts showing live buses,
-       * and how long after it keeps doing so.
+       * A commute starts showing live buses at its alert time — not before, so the
+       * "start alerting me at" setting means exactly what it says — and keeps going
+       * for this long afterwards, to cover running late.
        */
-      const ACTIVE_LEAD_MIN = 45;
-      const ACTIVE_TRAIL_MIN = 60;
+      const ACTIVE_WINDOW_MIN = 90;
 
       /**
        * @typedef {object} Commute
@@ -933,7 +934,7 @@
        * @property {string[]} services     buses you are willing to take
        * @property {number} walkToStopMin  door to stop
        * @property {number} bufferMin      safety margin
-       * @property {string} departAfterHHMM  when you intend to catch a bus
+       * @property {string} departAfterHHMM  when alerts for this commute begin
        * @property {number[]} activeDays   0 = Sunday .. 6 = Saturday
        */
 
@@ -997,7 +998,7 @@
       }
 
       /**
-       * Is this commute close enough to its departure time to show live buses?
+       * Has this commute's alert time arrived, and not yet lapsed?
        * @param {Commute} commute
        * @param {number} now
        */
@@ -1006,11 +1007,8 @@
         const today = sgtParts(now);
         if (!daysOf(commute).includes(today.weekday)) return false;
 
-        const departTs = sgtToTimestamp(today, hour, minute);
-        return (
-          now >= departTs - ACTIVE_LEAD_MIN * MINUTE_MS &&
-          now <= departTs + ACTIVE_TRAIL_MIN * MINUTE_MS
-        );
+        const startTs = sgtToTimestamp(today, hour, minute);
+        return now >= startTs && now <= startTs + ACTIVE_WINDOW_MIN * MINUTE_MS;
       }
 
       /**
@@ -1025,20 +1023,20 @@
       function decideDeparture({ commute, arrivals, now }) {
         const lead = (commute.walkToStopMin + commute.bufferMin) * MINUTE_MS;
 
-        // Outside the active window, live arrivals are irrelevant — the next bus now
-        // is not the bus you are catching. Fall back to plain arithmetic.
+        // Before the alert time there is no answer to give: which bus you catch
+        // depends on live arrivals we will only look at once the window opens.
+        // Deliberately no leave time here — inventing one would imply you board at
+        // the alert time, which is not what it means.
         if (!isActiveNow(commute, now)) {
-          const runTs = nextRun(commute, now);
-          const leaveAt = runTs - lead;
           return {
             status: 'SCHEDULED',
-            leaveAt,
-            leaveAtLabel: formatHHMM(leaveAt),
-            minutesUntilLeave: Math.round((leaveAt - now) / MINUTE_MS),
+            leaveAt: null,
+            leaveAtLabel: null,
+            minutesUntilLeave: null,
             bus: null,
             candidates: [],
             live: false,
-            nextRunTs: runTs,
+            nextRunTs: nextRun(commute, now),
           };
         }
 
@@ -1422,6 +1420,20 @@
        * @param {number} ts
        * @param {number} now
        */
+      function describeDay(ts, now) {
+        const a = sgtParts(now);
+        const b = sgtParts(ts);
+        if (a.day === b.day && a.month === b.month) return 'today';
+        const oneDay = 24 * 60 * 60 * 1000;
+        if (ts - now < oneDay * 1.5) return 'tomorrow';
+        return DAY_NAMES[b.weekday];
+      }
+
+      /**
+       * "Tomorrow 08:00", "Saturday 09:30", or just "08:00" for later today.
+       * @param {number} ts
+       * @param {number} now
+       */
       function describeWhen(ts, now) {
         const a = sgtParts(now);
         const b = sgtParts(ts);
@@ -1465,6 +1477,12 @@
           hero.append(make('span', 'hero__now', 'Leave now'));
         } else if (decision.status === 'NO_SERVICE') {
           hero.append(make('span', 'hero__none', 'No bus'));
+        } else if (decision.status === 'SCHEDULED' && decision.nextRunTs) {
+          // Not a countdown: no bus has been chosen yet, so show when alerts start.
+          hero.append(make('span', 'hero__value', formatHHMM(decision.nextRunTs)));
+          hero.append(
+            make('span', 'hero__caption', describeDay(decision.nextRunTs, now)),
+          );
         } else if (decision.minutesUntilLeave !== null) {
           const value = make('span', 'hero__value');
           value.dataset.leaveAt = String(decision.leaveAt ?? '');
@@ -1504,12 +1522,12 @@
               `Nothing you can still reach at ${stopName}. Buses within ${commute.walkToStopMin} min are too soon to walk to.`,
             ),
           );
-        } else if (decision.status === 'SCHEDULED' && decision.nextRunTs) {
+        } else if (decision.status === 'SCHEDULED') {
           card.append(
             make(
               'p',
               'detail',
-              `Next run ${describeWhen(decision.nextRunTs, now)} from ${stopName}. Live buses appear closer to the time.`,
+              `Alerts start then for ${stopName}. Which bus you catch depends on live arrivals, so there is nothing to show until the window opens.`,
             ),
           );
         }
@@ -1904,13 +1922,13 @@
         SGT_OFFSET_MS, MINUTE_MS, sgtParts, sgtToTimestamp, parseHHMM, formatHHMM,
         addDays, weekdayOf,
         // planner
-        ACTIVE_LEAD_MIN, ACTIVE_TRAIL_MIN, nextRun, isActiveNow, decideDeparture,
+        ACTIVE_WINDOW_MIN, nextRun, isActiveNow, decideDeparture,
         // bus data
         parseStops, servicesAtStop, searchStops, distanceMetres, nearestStops,
         // arrivals
         flattenService, normaliseArrivals,
         // ui helpers
-        describeMinutes, describeWhen,
+        describeMinutes, describeWhen, describeDay,
       };
 
       if (typeof document !== 'undefined') {

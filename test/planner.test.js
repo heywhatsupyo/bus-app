@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadApp } from './load-app.js';
 
-const { ACTIVE_LEAD_MIN, decideDeparture, isActiveNow, nextRun, MINUTE_MS, sgtToTimestamp } =
+const { ACTIVE_WINDOW_MIN, decideDeparture, isActiveNow, nextRun, MINUTE_MS, sgtToTimestamp } =
   await loadApp();
 
 /** 2026-08-26 is a Wednesday. */
@@ -51,29 +51,28 @@ describe('nextRun', () => {
 });
 
 describe('isActiveNow', () => {
-  it('is active shortly before the departure time', () => {
-    expect(isActiveNow(commute(), at(7, 30))).toBe(true);
+  it('is active exactly at the alert time', () => {
+    expect(isActiveNow(commute(), at(8, 0))).toBe(true);
   });
 
-  it('is active shortly after the departure time', () => {
-    expect(isActiveNow(commute(), at(8, 30))).toBe(true);
+  it('is active partway through the window', () => {
+    expect(isActiveNow(commute(), at(9, 0))).toBe(true);
   });
 
-  it('is inactive well before the window opens', () => {
-    expect(isActiveNow(commute(), at(6, 0))).toBe(false);
+  it('is not active before the alert time', () => {
+    // The label promises alerts start at 08:00, so 07:59 must be quiet.
+    expect(isActiveNow(commute(), at(7, 59))).toBe(false);
   });
 
-  it('is inactive well after the window closes', () => {
-    expect(isActiveNow(commute(), at(10, 0))).toBe(false);
+  it('is active at the very end of the window but not past it', () => {
+    const start = at(8, 0);
+    expect(isActiveNow(commute(), start + ACTIVE_WINDOW_MIN * MINUTE_MS)).toBe(true);
+    expect(isActiveNow(commute(), start + (ACTIVE_WINDOW_MIN + 1) * MINUTE_MS)).toBe(false);
   });
 
   it('is inactive on a day the commute does not run', () => {
     // Saturday the 29th, weekday-only commute.
     expect(isActiveNow(commute(), on(29, 8, 0))).toBe(false);
-  });
-
-  it('opens exactly at the lead boundary', () => {
-    expect(isActiveNow(commute(), at(8, 0) - ACTIVE_LEAD_MIN * MINUTE_MS)).toBe(true);
   });
 });
 
@@ -82,12 +81,12 @@ describe('decideDeparture', () => {
     const result = decideDeparture({
       commute: commute(),
       arrivals: [bus('143', 20), bus('143', 35)],
-      now: at(7, 40),
+      now: at(8, 5),
     });
     expect(result.status).toBe('LEAVE_AT');
-    expect(result.bus.busAtStop).toBe(at(8, 0));
-    // 08:00 minus 6 min walk minus 3 min buffer.
-    expect(result.leaveAtLabel).toBe('07:51');
+    expect(result.bus.busAtStop).toBe(at(8, 25));
+    // 08:25 minus 6 min walk minus 3 min buffer.
+    expect(result.leaveAtLabel).toBe('08:16');
     expect(result.minutesUntilLeave).toBe(11);
     expect(result.live).toBe(true);
   });
@@ -96,9 +95,9 @@ describe('decideDeparture', () => {
     const result = decideDeparture({
       commute: commute(),
       arrivals: [bus('143', 8)],
-      now: at(7, 55),
+      now: at(8, 5),
     });
-    // Bus at 08:03, leave time 07:54 — one minute ago.
+    // Bus at 08:13, leave time 08:04 — one minute ago.
     expect(result.status).toBe('LEAVE_NOW');
     expect(result.minutesUntilLeave).toBe(-1);
   });
@@ -107,9 +106,9 @@ describe('decideDeparture', () => {
     const result = decideDeparture({
       commute: commute(),
       arrivals: [bus('143', 3), bus('143', 25)],
-      now: at(7, 40),
+      now: at(8, 5),
     });
-    expect(result.bus.busAtStop).toBe(at(8, 5));
+    expect(result.bus.busAtStop).toBe(at(8, 30));
     expect(result.candidates[0].catchable).toBe(false);
   });
 
@@ -117,7 +116,7 @@ describe('decideDeparture', () => {
     const result = decideDeparture({
       commute: commute(),
       arrivals: [bus('143', 2)],
-      now: at(7, 40),
+      now: at(8, 5),
     });
     expect(result.status).toBe('NO_SERVICE');
     expect(result.bus).toBeNull();
@@ -127,7 +126,7 @@ describe('decideDeparture', () => {
     const result = decideDeparture({
       commute: commute({ services: ['143'] }),
       arrivals: [bus('105', 20)],
-      now: at(7, 40),
+      now: at(8, 5),
     });
     expect(result.status).toBe('NO_SERVICE');
   });
@@ -136,12 +135,12 @@ describe('decideDeparture', () => {
     const result = decideDeparture({
       commute: commute({ services: ['143', '105'] }),
       arrivals: [bus('105', 15), bus('143', 25)],
-      now: at(7, 40),
+      now: at(8, 5),
     });
     expect(result.bus.service).toBe('105');
   });
 
-  it('ignores live arrivals outside the active window', () => {
+  it('ignores live arrivals before the alert time', () => {
     const result = decideDeparture({
       commute: commute(),
       arrivals: [bus('143', 5)],
@@ -150,11 +149,29 @@ describe('decideDeparture', () => {
     expect(result.status).toBe('SCHEDULED');
     expect(result.live).toBe(false);
     expect(result.bus).toBeNull();
-    // 08:00 minus 9 min of walk and buffer.
-    expect(result.leaveAtLabel).toBe('07:51');
   });
 
-  it('schedules the next active day after the window closes', () => {
+  it('invents no leave time before the window opens', () => {
+    // Claiming a leave time here would imply you board at the alert time, which
+    // is not what the setting means.
+    const result = decideDeparture({ commute: commute(), arrivals: [], now: at(5, 0) });
+    expect(result.leaveAt).toBeNull();
+    expect(result.leaveAtLabel).toBeNull();
+    expect(result.minutesUntilLeave).toBeNull();
+    expect(result.nextRunTs).toBe(at(8, 0));
+  });
+
+  it('does not suggest a bus before the alert time', () => {
+    // 07:20 is inside the old 45-minute lead-in; it must now stay quiet.
+    const result = decideDeparture({
+      commute: commute(),
+      arrivals: [bus('143', 9)],
+      now: at(7, 20),
+    });
+    expect(result.status).toBe('SCHEDULED');
+  });
+
+  it('rolls to the next active day after the window closes', () => {
     const result = decideDeparture({
       commute: commute(),
       arrivals: [],
@@ -168,7 +185,7 @@ describe('decideDeparture', () => {
     const result = decideDeparture({
       commute: commute(),
       arrivals: [bus('143', 1), bus('143', 20), bus('143', 40)],
-      now: at(7, 40),
+      now: at(8, 5),
     });
     expect(result.candidates).toHaveLength(3);
     expect(result.candidates.map((c) => c.catchable)).toEqual([false, true, true]);
@@ -180,7 +197,7 @@ describe('decideDeparture', () => {
       decideDeparture({
         commute: commute(),
         arrivals: [bus('143', 20)],
-        now: at(7, 40),
+        now: at(8, 5),
       }).leaveAtLabel;
 
     process.env.TZ = 'UTC';
@@ -189,7 +206,7 @@ describe('decideDeparture', () => {
     const ny = run();
     process.env.TZ = original;
 
-    expect(utc).toBe('07:51');
+    expect(utc).toBe('08:16');
     expect(ny).toBe(utc);
   });
 });

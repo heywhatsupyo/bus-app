@@ -8,7 +8,7 @@ time you usually go. Open the page and it shows a countdown, using live Singapor
 arrival data.
 
 You can save as many commutes as you like at different times. A morning one and an
-evening one are independent; the app shows whichever is closest to its time.
+evening one are independent; the app shows whichever is currently alerting.
 
 **Live:** https://heywhatsupyo.github.io/bus-app/
 
@@ -56,16 +56,27 @@ duplicate arrival entries, and rolling to the next active day.
 
 ## How the decision is made
 
-1. Is this commute near its usual time? Live buses only matter from 45 minutes before
-   until 60 minutes after. Outside that, the next bus at the stop is not the bus you
-   are catching.
+1. Has this commute's alert time arrived? Alerts begin **at** the time you set and run
+   for 90 minutes. Before then the app stays quiet — which bus you catch depends on
+   live arrivals, so there is genuinely nothing to say yet.
 2. Among the buses you'd board, drop any arriving sooner than your walk takes — you
    can't reach them.
 3. Take the soonest one you can still make.
 4. Leave time = that bus, minus the walk, minus your buffer.
 
-Four statuses: `LEAVE_NOW`, `LEAVE_AT`, `NO_SERVICE`, and `SCHEDULED` (outside the
-window, where the answer is arithmetic rather than live data).
+Four statuses: `LEAVE_NOW`, `LEAVE_AT`, `NO_SERVICE`, and `SCHEDULED` (before the window
+opens, where the card shows when alerts start and nothing more).
+
+### What "start alerting me at" means
+
+It is **not** a target boarding time — the app never promises to put you on a bus at that
+moment. It is when the app starts watching. Set 08:00 and from 08:00 it shows the next
+bus you can actually catch, whatever time that turns out to be, for 90 minutes.
+
+Deliberately, no leave time is shown before the window opens. An earlier version
+displayed one, computed as the alert time minus your walk, which quietly implied you
+board at exactly that time — two different meanings for one field depending on when you
+looked.
 
 ## Alerts
 
